@@ -37,6 +37,7 @@ try {
   result = { status:'ok', service, checkedAt:new Date().toISOString() };
   phase = 'report';
   if (operation === 'check') result.report = service === 'source' ? await readSource(page) : await readGlucose(page, dates);
+  result.checkedAt = new Date().toISOString();
 } catch (error) {
   // Do not return browser exception messages: they may include form values or URLs with tokens.
   result = { status:error instanceof CheckError ? error.status : 'check_failed', phase,
