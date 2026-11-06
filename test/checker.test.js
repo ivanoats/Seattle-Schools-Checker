@@ -14,6 +14,15 @@ test('missing CGM samples remain gaps, and endpoints are not classified as low/h
   const result=summarize([{t:0,v:70},{t:300000,v:180},{t:900000,v:50}],0,1200000);
   assert.equal(result.readings,3); assert.equal(result.coveragePct,75);
   assert.equal(result.events.length,1); assert.equal(result.events[0].type,'low');
+  assert.equal(result.gaps.length,1);
+  assert.equal(result.gaps[0].start,'1970-01-01T00:10:00.000Z');
+});
+test('an entirely missing glucose window is explicitly unknown',()=>{
+  const r=summarize([],0,3600000);
+  assert.equal(r.min,null);assert.equal(r.coveragePct,0);assert.equal(r.gaps.length,1);
+});
+test('impossible calendar dates are rejected',()=>{
+  assert.throws(()=>windowsFor('2026-02-31'));
 });
 test('a normal sample breaks a high interval even when it is brief', () => {
   const result=summarize([{t:0,v:190},{t:1000,v:170},{t:2000,v:200}],0,900000);

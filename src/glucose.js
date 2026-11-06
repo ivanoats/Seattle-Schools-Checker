@@ -3,6 +3,13 @@ import { CheckError } from './auth.js';
 export function summarize(points, start, end, low = 70, high = 180) {
   const data = points.filter(p => p.t >= start && p.t < end).sort((a, b) => a.t - b.t);
   const events = [];
+  const gaps = [];
+  let previousTime = start - 300000;
+  for (const p of data) {
+    if (p.t - previousTime > 7.5 * 60000) gaps.push({ start: new Date(Math.max(start, previousTime + 300000)).toISOString(), end: new Date(p.t).toISOString() });
+    previousTime = p.t;
+  }
+  if (end - previousTime > 7.5 * 60000) gaps.push({ start: new Date(Math.max(start, previousTime + 300000)).toISOString(), end: new Date(end).toISOString() });
   let active = null;
   for (const p of data) {
     const type = p.v < low ? 'low' : p.v > high ? 'high' : null;
@@ -14,6 +21,7 @@ export function summarize(points, start, end, low = 70, high = 180) {
   }
   return { readings: data.length, expectedReadings: Math.round((end - start) / 300000),
     coveragePct: Math.min(100, Math.round(data.length / ((end - start) / 300000) * 100)),
+    gaps,
     min: data.length ? Math.min(...data.map(p => p.v)) : null,
     max: data.length ? Math.max(...data.map(p => p.v)) : null,
     events: events.map(e => ({ ...e, start: new Date(e.start).toISOString(), end: new Date(e.end).toISOString() })) };
@@ -27,7 +35,7 @@ export function seattleTime(date, hhmm) {
   return Date.parse(`${date}T${hhmm}:00Z`) - hours * 3600000;
 }
 export function windowsFor(date) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))) throw new CheckError('invalid_dates');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0,10) !== date) throw new CheckError('invalid_dates');
   const weekday = new Date(date + 'T12:00:00Z').getUTCDay();
   const previous = new Date(Date.parse(date + 'T12:00:00Z') - 86400000).toISOString().slice(0, 10);
   const w = (d, a, b) => ({ start: seattleTime(d, a), end: seattleTime(d, b) });
@@ -61,7 +69,7 @@ export async function readGlucose(page, dates) {
   const initial = await read();
   if (initial.max !== 400 || initial.cells.length < 2) throw new CheckError('glucose_chart_changed');
   // Anchor the newest full cell using the actual current hour and graph hour label.
-  const cell = initial.cells.find(c => c.width === 1920 && c.labels.length === 12);
+  const cell = initial.cells.filter(c => c.width === 1920 && c.labels.length === 12).sort((a,b) => a.right - b.right)[0];
   if (!cell || cell.labels[1].left - cell.labels[0].left !== 160) throw new CheckError('glucose_chart_changed');
   const label = cell.labels[0].text.replace(/\u00ad/g, '').trim().match(/^(\d+):00\s*(AM|PM)$/);
   if (!label) throw new CheckError('glucose_chart_changed');
@@ -72,7 +80,7 @@ export async function readGlucose(page, dates) {
   const today = `${part('year')}-${part('month')}-${part('day')}`;
   let anchorTime = seattleTime(today, String(targetHour).padStart(2,'0') + ':00');
   if (anchorTime > now.getTime()) anchorTime -= 86400000;
-  const anchor = -cell.right;
+  const anchor = -cell.right + cell.labels[0].left;
   const points = new Map();
   function collect(chart) {
     for (const c of chart.cells) {

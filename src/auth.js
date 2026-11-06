@@ -14,7 +14,8 @@ export function allowedCredentialDestination(service, url) {
 export async function guardLoginRequest(route, service) {
   const request = route.request(), url = new URL(request.url());
   if (['GET','HEAD'].includes(request.method())) {
-    if (url.origin !== sites[service].origin) { await route.abort(); return false; }
+    const allowedRead = url.origin === sites[service].origin || (service === 'sugarmate' && url.origin === 'https://api.sugarmate.io');
+    if (!allowedRead) { await route.abort(); return false; }
     await route.fallback(); return true;
   }
   if (!allowedCredentialDestination(service, request.url())) { await route.abort(); return false; }

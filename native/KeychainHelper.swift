@@ -29,7 +29,7 @@ func read(_ service: String) -> (OSStatus, Credentials?) {
           let credentials = try? JSONDecoder().decode(Credentials.self, from: data) else { return (status, nil) }
     return (status, credentials)
 }
-func setup(_ service: String) {
+func setup(_ service: String) -> Bool {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     app.activate(ignoringOtherApps: true)
@@ -46,10 +46,10 @@ func setup(_ service: String) {
     view.addSubview(username); view.addSubview(password)
     alert.accessoryView = view
     alert.window.initialFirstResponder = username
-    guard alert.runModal() == .alertFirstButtonReturn else { output("cancelled", service); return }
-    guard !username.stringValue.isEmpty, !password.stringValue.isEmpty else { output("empty_credentials", service); return }
+    guard alert.runModal() == .alertFirstButtonReturn else { output("cancelled", service); return false }
+    guard !username.stringValue.isEmpty, !password.stringValue.isEmpty else { output("empty_credentials", service); return false }
     let credentials = Credentials(username: username.stringValue, password: password.stringValue)
-    guard let data = try? JSONEncoder().encode(credentials) else { output("setup_failed", service); return }
+    guard let data = try? JSONEncoder().encode(credentials) else { output("setup_failed", service); return false }
     var q = query(service)
     // Trust the signed native helper, not the node interpreter or all applications.
     var trusted: SecTrustedApplication?
@@ -58,15 +58,16 @@ func setup(_ service: String) {
     guard SecTrustedApplicationCreateFromPath(path, &trusted) == errSecSuccess,
           let trusted = trusted,
           SecAccessCreate("Seattle school checker \(service)" as CFString, [trusted] as CFArray, &access) == errSecSuccess,
-          let access = access else { output("access_setup_failed", service); return }
+          let access = access else { output("access_setup_failed", service); return false }
     let attributes: [String: Any] = [kSecValueData as String: data, kSecAttrAccess as String: access]
     let existing = SecItemUpdate(q as CFDictionary, attributes as CFDictionary)
     if existing == errSecItemNotFound {
         q.merge(attributes) { _, new in new }
-        guard SecItemAdd(q as CFDictionary, nil) == errSecSuccess else { output("setup_failed", service); return }
-    } else if existing != errSecSuccess { output("setup_failed", service); return }
+        guard SecItemAdd(q as CFDictionary, nil) == errSecSuccess else { output("setup_failed", service); return false }
+    } else if existing != errSecSuccess { output("setup_failed", service); return false }
     password.stringValue = ""; username.stringValue = ""
     output("stored", service)
+    return true
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
@@ -74,7 +75,7 @@ guard args.count >= 2, services.contains(args[1]) else {
     output("usage: checker setup|status|login|check source|sugarmate [YYYY-MM-DD ...]"); exit(2)
 }
 let operation = args[0], service = args[1]
-if operation == "setup" { setup(service); exit(0) }
+if operation == "setup" { exit(setup(service) ? 0 : 3) }
 if operation == "status" {
     // Attribute-only lookup does not retrieve the password or trigger access approval.
     var q = query(service); q[kSecReturnAttributes as String] = true
