@@ -1,0 +1,22 @@
+{
+  "name": "seattle-source-checker",
+  "version": "0.0.1",
+  "description": "Automates checking Seattle Schools Source and sends a report on a configurable interval, like daily",
+  "license": "ISC",
+  "author": "Ivan Storck",
+  "type": "module",
+  "main": "src/worker.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "setup:keychain": "node scripts/setup.js",
+    "test": "node --test",
+    "check": "node --check src/auth.js && node --check src/source.js && node --check src/glucose.js && node --check src/worker.js"
+  },
+  "dependencies": {
+    "playwright": "1.65.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
+}

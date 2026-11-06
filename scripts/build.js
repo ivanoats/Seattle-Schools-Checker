@@ -1,0 +1,10 @@
+import { mkdir, writeFile, chmod } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('../', import.meta.url));
+await mkdir(new URL('../build/', import.meta.url), { recursive: true, mode: 0o700 });
+execFileSync('/usr/bin/xcrun', ['swiftc', '-O', '-framework', 'AppKit', '-framework', 'Security', 'native/KeychainHelper.swift', '-o', 'build/checker'], { cwd: root, stdio: 'inherit' });
+execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--identifier', 'org.ivan.seattle-source-checker', 'build/checker'], { cwd: root, stdio: 'inherit' });
+await writeFile(new URL('../build/runtime.json', import.meta.url), JSON.stringify({ node: process.execPath }), { mode: 0o600 });
+await chmod(new URL('../build/checker', import.meta.url), 0o700);
+console.log('Built native Keychain helper. No credentials were accessed.');

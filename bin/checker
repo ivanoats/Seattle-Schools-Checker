@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+CHECKER_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if ! test -x "$CHECKER_ROOT/build/checker"; then
+  printf '%s\n' '{"status":"build_required"}'
+  exit 2
+fi
+exec "$CHECKER_ROOT/build/checker" "$@"
