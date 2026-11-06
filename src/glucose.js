@@ -59,6 +59,9 @@ export async function readGlucose(page, dates) {
   if (!(low > 0 && high > low)) throw new CheckError('glucose_ranges_unavailable');
   await page.goto('https://app.sugarmate.io/home');
   await page.locator('#graph button#glucose-activity-icon').first().waitFor();
+  const feedLabel = (await page.locator('#users-data').innerText()).replace(/\u00ad/g, '').trim();
+  const sourceLabel = (await page.locator('#dexcom-branding').innerText()).replace(/\u00ad/g, '').trim();
+  if (feedLabel !== "Sample CGM feed" || sourceLabel !== 'CGM Data by Dexcom') throw new CheckError('glucose_feed_identity_changed');
   const read = () => page.locator('#graph').evaluate(el => ({
     cells: Array.from(el.querySelectorAll('[class*="Cell_container"]')).map(c => ({
       right: parseFloat(c.style.right), width: parseFloat(c.style.width),
@@ -103,7 +106,7 @@ export async function readGlucose(page, dates) {
     collect(await read());
   }
   const data = Array.from(points.values());
-  return { timezone:'America/Los_Angeles', thresholds:{ low, high }, approximate:true,
+  return { feed:{label:feedLabel,source:sourceLabel,confirmedFor:'Sample Student'}, timezone:'America/Los_Angeles', thresholds:{ low, high }, approximate:true,
     limitations:['Graph-derived timestamps; values at 400 may be clipped.', 'A/B lunch unknown; Tuesday/Thursday P5 ending uncertain.', 'Standard period windows require date-specific schedule verification.'],
     days:windows.map(({date,windows}) => ({ date, windows:Object.fromEntries(Object.entries(windows).map(([name,w]) => [name, { start:new Date(w.start).toISOString(), end:new Date(w.end).toISOString(), ...summarize(data,w.start,w.end,low,high) }])) })) };
 }

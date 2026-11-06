@@ -9,6 +9,7 @@ import { readGlucose } from './glucose.js';
 process.umask(0o077);
 let context, lock, lockPath;
 let result;
+let phase = 'request';
 try {
   let input = '';
   for await (const chunk of process.stdin) {
@@ -24,18 +25,24 @@ try {
   try { lock = await open(lockPath, 'wx', 0o600); } catch { throw new CheckError('check_already_running'); }
   const profile = path.join(dataDir, service + '-chrome');
   await mkdir(profile, { mode:0o700, recursive:true }); await chmod(profile,0o700);
-  context = await chromium.launchPersistentContext(profile, { channel:'chrome', headless:true,
+  phase = 'browser';
+  context = await chromium.launchPersistentContext(profile, { channel:'chrome', headless:operation !== 'login',
     timezoneId:'America/Los_Angeles', locale:'en-US', acceptDownloads:false,
     serviceWorkers:'block', timeout:20000 });
   const page = context.pages()[0] || await context.newPage();
   page.setDefaultTimeout(15000);
-  await ensureLogin(page, service, credentials);
+  phase = 'authentication';
+  await ensureLogin(page, service, credentials, operation === 'login' ? 180000 : 15000);
   if (credentials) { credentials.password = ''; credentials.username = ''; }
   result = { status:'ok', service, checkedAt:new Date().toISOString() };
+  phase = 'report';
   if (operation === 'check') result.report = service === 'source' ? await readSource(page) : await readGlucose(page, dates);
 } catch (error) {
   // Do not return browser exception messages: they may include form values or URLs with tokens.
-  result = { status:error instanceof CheckError ? error.status : 'check_failed' };
+  result = { status:error instanceof CheckError ? error.status : 'check_failed', phase,
+    errorKind: ['TimeoutError','TypeError','SyntaxError'].includes(error.name) ? error.name : 'Error',
+    codeLocation: error.stack?.match(/src\/(?:auth|source|glucose|worker)\.js:\d+:\d+/g)?.[0] || null,
+    reason: [['Navigation interrupted','interrupted'],['net::ERR','network'],['strict mode','ambiguous_locator'],['Target page','browser_closed'],['route','routing'],['locator','page_layout']].find(([text])=>error.message?.includes(text))?.[1] || 'unclassified' };
   process.exitCode = 1;
 } finally {
   try { await context?.close(); } catch { /* no diagnostics containing browser data */ }

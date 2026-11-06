@@ -15,8 +15,8 @@ export async function readSource(page) {
       detail: c[14].querySelector('a')?.getAttribute('href'),
       absences: c[18].innerText.trim(), tardies: c[19].innerText.trim() };
   }));
-  const absenceURL = await page.locator('.termAbsTotal a').getAttribute('href');
-  const tardyURL = await page.locator('.termTarTotal a').getAttribute('href');
+  const absenceURL = await page.locator('#tblgrades a[href*="codes=*abs"]').last().getAttribute('href');
+  const tardyURL = await page.locator('#tblgrades a[href*="codes=*tar"]').last().getAttribute('href');
   async function attendance(href) {
     if (!href) throw new CheckError('source_layout_changed');
     await page.goto(new URL(href, page.url()).href);
@@ -26,7 +26,7 @@ export async function readSource(page) {
   const absences = await attendance(absenceURL);
   const tardies = await attendance(tardyURL);
   for (const c of courses) {
-    if (!c.detail) { c.missing = []; continue; }
+    if (!c.detail) { c.missing = null; c.assignmentStatus = 'published_grade_unavailable'; delete c.detail; continue; }
     await page.goto(new URL(c.detail, sites.source.origin + '/guardian/').href);
     await page.getByRole('heading', { name: 'Class Score Detail: Student, Sample', exact: true }).waitFor();
     // Wait for Angular's published-assignment table or explicit empty result.
