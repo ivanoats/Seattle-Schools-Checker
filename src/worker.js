@@ -5,6 +5,7 @@ import path from 'node:path';
 import { CheckError, ensureLogin, sites } from './auth.js';
 import { readSource } from './source.js';
 import { readGlucose } from './glucose.js';
+import { readSchoology, selectSample } from './schoology.js';
 
 process.umask(0o077);
 let context, lock, lockPath;
@@ -34,15 +35,25 @@ try {
   phase = 'authentication';
   await ensureLogin(page, service, credentials, operation === 'login' ? 180000 : 15000);
   if (credentials) { credentials.password = ''; credentials.username = ''; }
-  result = { status:'ok', service, checkedAt:new Date().toISOString() };
+  if (service === 'schoology') {
+    try {await selectSample(page);}
+    catch(error) {
+      if (operation !== 'login' || error.status !== 'schoology_select_sample_required') throw error;
+      // Interactive login may need the parent to select the linked child once.
+      try {await page.waitForFunction(()=>document.querySelector('#child-session-banner')?.textContent.trim()==='You are viewing as Sample Student',null,{timeout:180000});}
+      catch {throw error;}
+    }
+  }
+  result = { status:'ok', service, authentication:credentials ? 'keychain' : 'existing_session', checkedAt:new Date().toISOString() };
   phase = 'report';
-  if (operation === 'check') result.report = service === 'source' ? await readSource(page) : await readGlucose(page, dates);
+  if (operation === 'check') result.report = service === 'source' ? await readSource(page) : service === 'schoology' ? await readSchoology(page) : await readGlucose(page, dates);
   result.checkedAt = new Date().toISOString();
 } catch (error) {
   // Do not return browser exception messages: they may include form values or URLs with tokens.
   result = { status:error instanceof CheckError ? error.status : 'check_failed', phase,
+    ...(error instanceof CheckError && error.login ? {login:error.login} : {}),
     errorKind: ['TimeoutError','TypeError','SyntaxError'].includes(error.name) ? error.name : 'Error',
-    codeLocation: error.stack?.match(/src\/(?:auth|source|glucose|worker)\.js:\d+:\d+/g)?.[0] || null,
+    codeLocation: error.stack?.match(/src\/(?:auth|source|glucose|schoology|worker)\.js:\d+:\d+/g)?.[0] || null,
     reason: [['Navigation interrupted','interrupted'],['net::ERR','network'],['strict mode','ambiguous_locator'],['Target page','browser_closed'],['route','routing'],['locator','page_layout']].find(([text])=>error.message?.includes(text))?.[1] || 'unclassified' };
   process.exitCode = 1;
 } finally {

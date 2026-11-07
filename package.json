@@ -10,7 +10,7 @@
     "build": "node scripts/build.js",
     "setup:keychain": "node scripts/setup.js",
     "test": "node --test",
-    "check": "node --check src/auth.js && node --check src/source.js && node --check src/glucose.js && node --check src/worker.js"
+    "check": "node --check src/auth.js && node --check src/source.js && node --check src/glucose.js && node --check src/schoology.js && node --check src/worker.js"
   },
   "dependencies": {
     "playwright": "1.65.0"

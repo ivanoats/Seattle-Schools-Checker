@@ -1,20 +1,24 @@
 export const sites = Object.freeze({
   source: { origin: 'https://ps.seattleschools.org', start: 'https://ps.seattleschools.org/public/' },
   sugarmate: { origin: 'https://app.sugarmate.io', start: 'https://app.sugarmate.io/home' },
+  schoology: { origin: 'https://app.schoology.com', start: 'https://app.schoology.com/parent/home' },
 });
 export class CheckError extends Error {
   constructor(status) { super(status); this.status = status; }
 }
 export function allowedCredentialDestination(service, url) {
   const u = new URL(url);
-  return u.protocol === 'https:' && (service === 'source'
+  if (!sites[service] || u.protocol !== 'https:') return false;
+  if (service === 'schoology') return u.origin === sites.schoology.origin && u.pathname === '/login';
+  return (service === 'source'
     ? u.origin === sites.source.origin
     : u.origin === 'https://api.sugarmate.io' && u.pathname === '/oauth/token');
 }
-export async function guardLoginRequest(route, service) {
+export async function guardLoginRequest(route, service, onStatus = null) {
   const request = route.request(), url = new URL(request.url());
   if (['GET','HEAD'].includes(request.method())) {
-    const allowedRead = url.origin === sites[service].origin || (service === 'sugarmate' && url.origin === 'https://api.sugarmate.io');
+    const allowedRead = url.origin === sites[service].origin || (service === 'sugarmate' && url.origin === 'https://api.sugarmate.io')
+      || (service === 'schoology' && url.origin === 'https://asset-cdn.schoology.com' && url.pathname.startsWith('/assets/'));
     if (!allowedRead) { await route.abort(); return false; }
     await route.fallback(); return true;
   }
@@ -22,6 +26,7 @@ export async function guardLoginRequest(route, service) {
   // Inspect redirects before Chromium can replay a password-bearing POST.
   const response = await route.fetch({ maxRedirects:0, timeout:15000 });
   const status = response.status(), location = response.headers().location;
+  onStatus?.(status);
   if (status >= 400 && request.method() === 'POST') {
     await route.fulfill({ response });
     return status === 400 || status === 401 || status === 403 ? 'service_rejected_credentials' : 'authentication_request_failed';
@@ -36,6 +41,10 @@ export async function guardLoginRequest(route, service) {
 }
 export async function isSignedIn(page, service) {
   if (new URL(page.url()).origin !== sites[service].origin) return false;
+  if (service === 'schoology') return !new URL(page.url()).pathname.startsWith('/login')
+    && (await page.locator('#child-session-banner').isVisible()
+      || (await page.getByRole('link', {name:'Calendar',exact:true}).isVisible()
+        && await page.getByRole('button', {name:'Courses',exact:true}).isVisible()));
   return service === 'source'
     ? /\/guardian\//.test(new URL(page.url()).pathname)
       && await page.locator('#btnLogout').isVisible()
@@ -52,6 +61,11 @@ export async function ensureLogin(page, service, credentials, timeoutMs = 15000)
       await page.goto(sites.source.origin + '/guardian/home.html');
       if (await isSignedIn(page, service)) return;
     }
+  } else if (service === 'schoology') {
+    await page.waitForLoadState('load');
+    await page.locator('#edit-mail, #child-session-banner, a[href="/parent/calendar"]').first().waitFor();
+    if (await isSignedIn(page, service)) return;
+    if (new URL(page.url()).origin !== sites.schoology.origin) throw new CheckError('interactive_sso_required');
   } else {
     await page.locator('#graph, #country-of-residence-select, #user-email-input, #sign-in-button').first().waitFor();
     if (await isSignedIn(page, service)) return;
@@ -62,8 +76,8 @@ export async function ensureLogin(page, service, credentials, timeoutMs = 15000)
     if (await page.locator('#sign-in-button').isVisible()) await page.locator('#sign-in-button').click();
   }
   if (!credentials) throw new CheckError('credentials_required');
-  const user = page.locator(service === 'source' ? '#fieldAccount' : '#user-email-input');
-  const password = page.locator(service === 'source' ? 'input[type="password"]:visible' : '#user-password-input');
+  const user = page.locator(service === 'source' ? '#fieldAccount' : service === 'schoology' ? '#edit-mail' : '#user-email-input');
+  const password = page.locator(service === 'source' ? 'input[type="password"]:visible' : service === 'schoology' ? '#edit-pass' : '#user-password-input');
   await user.waitFor({ timeout: 10000 });
   if (new URL(page.url()).origin !== sites[service].origin) throw new CheckError('unexpected_login_origin');
   const formAction = await password.evaluate(el => el.form?.action || location.href);
@@ -74,11 +88,12 @@ export async function ensureLogin(page, service, credentials, timeoutMs = 15000)
   let blocked = false;
   let failure = null;
   let tokenCompleted = false;
+  let loginHttpStatus = null;
   const guard = async route => {
     try {
-      const outcome = await guardLoginRequest(route,service);
+      const outcome = await guardLoginRequest(route,service,status=>{loginHttpStatus=status;});
       if (typeof outcome === 'string') failure = outcome;
-      else if (!outcome && new URL(route.request().url()).origin === 'https://api.sugarmate.io') blocked = true;
+      else if (!outcome && (new URL(route.request().url()).origin === 'https://api.sugarmate.io' || allowedCredentialDestination(service,route.request().url()))) blocked = true;
       else if (outcome && service === 'sugarmate' && route.request().method() === 'POST' && allowedCredentialDestination(service,route.request().url())) {
         tokenCompleted = true;
         // Once OAuth has completed, allow the app's normal authenticated API
@@ -91,11 +106,28 @@ export async function ensureLogin(page, service, credentials, timeoutMs = 15000)
   try {
     await user.fill(credentials.username);
     await password.fill(credentials.password);
-    await page.locator(service === 'source' ? '#btn-enter-sign-in' : 'input[type="submit"]').click();
+    await page.locator(service === 'source' ? '#btn-enter-sign-in' : service === 'schoology' ? '#edit-submit' : 'input[type="submit"]').click();
     try {
-      await page.waitForURL(service === 'source' ? '**/guardian/**' : '**/home', { timeout: timeoutMs });
-      await page.locator(service === 'source' ? '#btnLogout' : '#graph').waitFor({ timeout: 10000 });
-    } catch { throw new CheckError(failure || (blocked ? 'blocked_credential_destination' : tokenCompleted ? 'oauth_completed_page_not_ready' : 'sign_in_needs_attention')); }
+      if (service === 'schoology') {
+        await page.waitForURL(url => url.origin === sites.schoology.origin && !url.pathname.startsWith('/login'), {timeout:timeoutMs});
+        await page.locator('#child-session-banner, a[aria-label="Calendar"]').first().waitFor({timeout:15000});
+      } else {
+        await page.waitForURL(service === 'source' ? '**/guardian/**' : '**/home', { timeout: timeoutMs });
+        await page.locator(service === 'source' ? '#btnLogout' : '#graph').waitFor({ timeout: 10000 });
+      }
+    } catch {
+      if (service === 'schoology') {
+        const text=await page.locator('body').innerText();
+        if (/unrecognized|not recognized|could not be recognized|invalid (?:email|password)|incorrect (?:email|password)|incorrect username or password/i.test(text)) {
+          throw new CheckError('schoology_credentials_rejected');
+        }
+        if (await page.locator('#edit-school:visible').count()) throw new CheckError('schoology_school_selection_required');
+        const error=new CheckError(failure || (blocked ? 'blocked_credential_destination' : 'sign_in_needs_attention'));
+        error.login={httpStatus:loginHttpStatus,stage:new URL(page.url()).pathname.startsWith('/login')?'login':'after_login'};
+        throw error;
+      }
+      throw new CheckError(failure || (blocked ? 'blocked_credential_destination' : tokenCompleted ? 'oauth_completed_page_not_ready' : 'sign_in_needs_attention'));
+    }
     if (!await isSignedIn(page, service)) throw new CheckError('sign_in_needs_attention');
   } finally {
     await page.context().unroute('**/*', guard);

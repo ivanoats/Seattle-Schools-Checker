@@ -6,7 +6,7 @@ import Foundation
 // There is intentionally no command that prints a Keychain secret.
 struct Credentials: Codable { var username: String; var password: String }
 struct Request: Codable { var service: String; var operation: String; var dates: [String]; var credentials: Credentials? }
-let services = ["source", "sugarmate"]
+let services = ["source", "sugarmate", "schoology"]
 let prefix = "org.ivan.seattle-source-checker."
 
 func output(_ status: String, _ service: String = "") {
@@ -34,13 +34,14 @@ func setup(_ service: String) -> Bool {
     app.setActivationPolicy(.accessory)
     app.activate(ignoringOtherApps: true)
     let alert = NSAlert()
-    alert.messageText = "Save \(service == "source" ? "The Source" : "Sugarmate") login"
+    let label = ["source": "The Source", "sugarmate": "Sugarmate", "schoology": "Schoology"][service]!
+    alert.messageText = "Save \(label) login"
     alert.informativeText = "Enter your existing parent account credentials. They will be encrypted in your login Keychain. The school checker can use them to sign in to this service."
     alert.addButton(withTitle: "Save to Keychain")
     alert.addButton(withTitle: "Cancel")
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 100))
     let username = NSTextField(frame: NSRect(x: 0, y: 65, width: 340, height: 26))
-    username.placeholderString = "Username or email"
+    username.placeholderString = service == "schoology" ? "Schoology parent email" : "Username or email"
     let password = NSSecureTextField(frame: NSRect(x: 0, y: 20, width: 340, height: 26))
     password.placeholderString = "Password"
     view.addSubview(username); view.addSubview(password)
@@ -72,7 +73,7 @@ func setup(_ service: String) -> Bool {
 
 let args = Array(CommandLine.arguments.dropFirst())
 guard args.count >= 2, services.contains(args[1]) else {
-    output("usage: checker setup|status|login|check source|sugarmate [YYYY-MM-DD ...]"); exit(2)
+    output("usage: checker setup|status|login|check source|sugarmate|schoology [YYYY-MM-DD ...]"); exit(2)
 }
 let operation = args[0], service = args[1]
 if operation == "setup" { exit(setup(service) ? 0 : 3) }
