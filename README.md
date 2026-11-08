@@ -1,6 +1,6 @@
 # Seattle Source checker
 
-Private, local checks for a parent’s SPS Source, Sugarmate, and Schoology accounts, with macOS Keychain sign-in. Passwords are entered into a native secure dialog, stored in login Keychain, and passed through a private pipe to a fixed local browser worker only when a session needs reauthentication. There is no secret-export command. CLI output contains status or the requested school/glucose summary, never credentials.
+Private local checks for a parent’s SPS Source and Schoology accounts, with macOS Keychain sign-in. Passwords are entered into a native secure dialog, stored in login Keychain, and passed through a private pipe to a fixed local browser worker only when a session needs reauthentication. There is no secret-export command. CLI output contains status or the requested summary.
 
 ## Setup
 
@@ -12,24 +12,21 @@ npm run build
 npm run setup:keychain
 ```
 
-Enter the Source parent username/password, then the Sugarmate email/password in the two local macOS dialogs. Do not enter passwords into the terminal or chat. Keychain may request approval for the signed helper. Approving persistent access to these two items allows unattended re-login while login Keychain is unlocked. macOS can request approval again after rebuilding/signing the helper.
+Enter the Source parent username/password, then the Schoology parent email/password in the two local macOS dialogs. Do not enter passwords into the terminal or chat. Keychain may request approval for the signed helper. Approving persistent access to these two items allows unattended re-login while login Keychain is unlocked. macOS can request approval again after rebuilding/signing the helper.
 
 This creates **new, scoped Keychain items**. It does not read existing Apple Passwords/1Password entries or change their settings. The helper is signed locally (ad hoc); it is not notarized or a sandboxed app. The native helper uses the macOS login-Keychain ACL API, which Apple marks deprecated but still supports for this desktop use case. Credential and session protection is within your macOS user account; malicious code already running as your user could modify this project. Keep the repository and its dependencies under your control.
 
-To add Schoology separately, run `npm run setup:keychain -- schoology` and enter the **parent account email** and password locally. The default setup still covers only Source and Sugarmate.
+To set up just Schoology, run `npm run setup:keychain -- schoology` and enter the **parent account email** and password locally.
 
 ## Commands
 
 ```sh
 ./bin/checker status source
-./bin/checker status sugarmate
 ./bin/checker status schoology
 ./bin/checker login source
-./bin/checker login sugarmate
 ./bin/checker login schoology
 ./bin/checker check source
 ./bin/checker check schoology
-./bin/checker check sugarmate 2026-11-05
 ```
 
 `status` checks whether the scoped Keychain entry exists.
@@ -127,20 +124,28 @@ hosted runner and for local verification.
 
 Schoology passwords are sent only to `https://app.schoology.com/login`. Only direct parent email/password login is automated. District SSO, MFA, CAPTCHA, and unexpected permissions remain interactive. No session cookies or tokens are exported from normal Chrome, no internal API requests are replayed, and no App Center registration or API consumer key is required for this browser implementation. Private Chrome profiles still contain sensitive session cookies and must remain protected.
 
-The legacy Sugarmate check reads `sugarmate.json` from the same private
-directory. Set `feedLabel` to the verified feed label and `studentName` to
-the student it belongs to. Keep this file outside the repository. The
-checker verifies the label and Dexcom attribution before reading data.
-
-`check` runs headlessly; `login` opens Chrome and waits up to three minutes for you to complete any account setup, MFA, or consent yourself. Both use separate private profiles under `~/Library/Application Support/SeattleSourceChecker/` (directory mode 700). Cookies are sensitive session credentials; profiles stay outside the repository. Neither Chrome’s normal profile nor its debug port is used. The worker does not capture screenshots, network traces, videos, console logs, or password-containing exception messages. Schoology static dashboard assets may be read from its own asset CDN; password writes are still restricted to its login endpoint. Source credentials are restricted to its exact HTTPS origin; Sugarmate credential requests are restricted to its observed HTTPS OAuth token endpoint. Sugarmate’s country selection is set to US for this Seattle-based workflow.
+`check` runs headlessly; `login` opens Chrome and waits up to three minutes for you to complete any account setup, MFA, or consent yourself. Both use separate private profiles under `~/Library/Application Support/SeattleSourceChecker/` (directory mode 700). Cookies are sensitive session credentials; profiles stay outside the repository. Neither Chrome’s normal profile nor its debug port is used. The worker does not capture screenshots, network traces, videos, console logs, or password-containing exception messages. Schoology static dashboard assets may be read from its own asset CDN; password writes are still restricted to its login endpoint. Source credentials are restricted to its exact HTTPS origin.
 
 ## Weekday automation
 
-The existing Codex weekday automation should call the absolute project command `bin/checker check source` first, use the latest successful chat result as its comparison baseline, then call `bin/checker check sugarmate YYYY-MM-DD ...` for new/changed absence dates and `bin/checker check schoology` for the parent summary. Use the existing signed-in normal Chrome session for relevant Schoology assignment details not included in the summary. These commands retrieve credentials internally; never call the macOS `security` CLI to print credentials. No automated email or school-record changes are implemented.
+The existing Codex weekday automation should call the absolute project command `bin/checker check source` first, use the latest successful chat result as its comparison baseline, then call `bin/checker check schoology` for the parent summary. Use the existing signed-in normal Chrome session for relevant Schoology assignment details not included in the summary. These commands retrieve credentials internally; never call the macOS `security` CLI to print credentials. No automated email or school-record changes are implemented.
 
 If the helper returns `setup_required`, run setup locally. For `keychain_access_required`, unlock/approve the scoped entry locally. `sign_in_needs_attention` means the login was not verified (invalid credentials, MFA, CAPTCHA, or a changed page); the checker does not bypass those challenges. `check_already_running` avoids overlapping access to a profile. If a process is force-killed its service `.lock` may need manual removal after verifying no checker process remains. `check_failed` is intentionally generic to avoid leaking browser data.
 
-Source and Sugarmate scoped Keychain entries and live sign-ins were verified on November 6, 2026. Live Source extraction and a dated Sugarmate comparison also passed. The existing weekday 5 p.m. Seattle automation is connected to this helper. Schoology Keychain-backed reauthentication (not merely session reuse), Sample identity, the expanded four-item overdue list, two upcoming items, calendar and submitted/awaiting-grade outline were verified live later the same day. The weekday automation now calls all three services. Check errors are not evidence that school or glucose data is clear.
+The weekday automation runs at 5 p.m. Seattle time. Friday runs also produce
+the family PDF. Check errors leave the affected school data unverified.
+
+## Architecture and scope
+
+See the [architecture index](docs/architecture/README.md) for the ADL, C4 views,
+decision records, quality assessment, and proposed Cloudflare migration.
+
+Sugarmate is shelved. The existing implementation, tests, local credentials
+and browser profile are retained. Default setup, scheduled school reports and
+the planned cloud service cover Source and Schoology. The optional legacy
+check uses a private `sugarmate.json` alongside `children.json`. Set
+`feedLabel` and `studentName` to the verified local mapping. Keep both
+files outside the repository.
 
 ## Validation
 

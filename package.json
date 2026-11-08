@@ -1,9 +1,8 @@
 {
-  "name": "seattle-source-checker",
+  "name": "seattle-schools-checker",
   "version": "0.0.1",
-  "description": "Automates checking Seattle Schools Source and sends a report on a configurable interval, like daily",
+  "description": "Checks Seattle Public Schools’ The Source and Schoology for progress reports",
   "license": "ISC",
-  "author": "Ivan Storck",
   "type": "module",
   "main": "src/worker.js",
   "scripts": {
