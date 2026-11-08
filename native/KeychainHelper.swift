@@ -5,7 +5,13 @@ import Foundation
 // Passwords only cross the private stdin pipe to the fixed browser worker.
 // There is intentionally no command that prints a Keychain secret.
 struct Credentials: Codable { var username: String; var password: String }
-struct Request: Codable { var service: String; var operation: String; var dates: [String]; var credentials: Credentials? }
+struct Request: Codable {
+    var service: String
+    var operation: String
+    var dates: [String]
+    var credentials: Credentials?
+    var childId: String?
+}
 let services = ["source", "sugarmate", "schoology"]
 let prefix = "org.ivan.seattle-source-checker."
 
@@ -73,7 +79,7 @@ func setup(_ service: String) -> Bool {
 
 let args = Array(CommandLine.arguments.dropFirst())
 guard args.count >= 2, services.contains(args[1]) else {
-    output("usage: checker setup|status|login|check source|sugarmate|schoology [YYYY-MM-DD ...]"); exit(2)
+    output("usage: checker setup|status|login|check source|schoology [--child ID], or checker check sugarmate [YYYY-MM-DD ...]"); exit(2)
 }
 let operation = args[0], service = args[1]
 if operation == "setup" { exit(setup(service) ? 0 : 3) }
@@ -84,7 +90,16 @@ if operation == "status" {
     output(status == errSecSuccess ? "configured" : "not_configured", service); exit(0)
 }
 guard ["login", "check"].contains(operation) else { output("unknown_command"); exit(2) }
-let dates = Array(args.dropFirst(2))
+let options = Array(args.dropFirst(2))
+var childId: String? = nil
+if service != "sugarmate", !options.isEmpty {
+    guard options.count == 2, options[0] == "--child",
+          options[1].range(of: #"^[a-z0-9][a-z0-9-]{0,39}$"#, options: .regularExpression) != nil else {
+        output("invalid_child_option", service); exit(2)
+    }
+    childId = options[1]
+}
+let dates = service == "sugarmate" ? options : []
 guard dates.count <= 7, dates.allSatisfy({ $0.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil }) else {
     output("invalid_dates", service); exit(2)
 }
@@ -95,7 +110,7 @@ guard let configData = try? Data(contentsOf: configURL),
       let config = try? JSONSerialization.jsonObject(with: configData) as? [String: String],
       let node = config["node"], node.hasPrefix("/") else { output("build_required", service); exit(2) }
 func runWorker(_ credentials: Credentials?) throws -> (Data, Int32) {
-let request = Request(service: service, operation: operation, dates: dates, credentials: credentials)
+let request = Request(service: service, operation: operation, dates: dates, credentials: credentials, childId: childId)
 let process = Process()
 process.executableURL = URL(fileURLWithPath: node)
 process.arguments = [root.appendingPathComponent("src/worker.js").path]

@@ -1,13 +1,20 @@
 import { CheckError, sites } from './auth.js';
+import { legacyChild } from './local-child.js';
 
-export async function selectSample(page) {
+export async function verifySchoologyChild(page, child = legacyChild, timeout = 10000) {
   await page.goto(sites.schoology.start, {waitUntil:'domcontentloaded'});
-  try { await page.locator('#child-session-banner').waitFor({timeout:10000}); }
-  catch { throw new CheckError('schoology_select_sample_required'); }
-  if ((await page.locator('#child-session-banner').innerText()).trim() !== 'You are viewing as Sample Student') {
-    throw new CheckError('schoology_select_sample_required');
+  try {
+    await page.waitForFunction(banner => {
+      const selected = document.querySelector('#child-session-banner');
+      return selected?.getClientRects().length && selected.innerText.trim() === banner;
+    }, child.providers.schoology.banner, { timeout });
+  } catch {
+    throw new CheckError(child.id === legacyChild.id
+      ? 'schoology_select_sample_required' : 'schoology_select_child_required');
   }
 }
+
+export const selectSample = page => verifySchoologyChild(page, legacyChild, 1000);
 
 // Only inspect rendered rows. Schoology keeps future/extra overdue rows hidden
 // in its DOM; these are not evidence of an active overdue status.
@@ -30,9 +37,9 @@ export function summaryRows(root) {
   }).filter(Boolean);
 }
 
-export async function readSchoology(page) {
-  await selectSample(page);
-  await page.locator('.upcoming-submissions').waitFor();
+export async function readSchoology(page, child = legacyChild) {
+  await verifySchoologyChild(page, child);
+  await page.locator('#right-column-inner').waitFor({ state: 'attached' });
   // The overdue request finishes later than the other sidebar requests. Until
   // real rows are visible, absence of rows must remain unknown, not clear.
   let overdueReady=false;
@@ -40,13 +47,13 @@ export async function readSchoology(page) {
   catch {/* Leave the section unknown if no positive rendered result is available. */}
   async function rows(selector) {
     const target=page.locator(selector).first();
-    return await target.count() ? await target.evaluate(summaryRows) : null;
+    return await target.isVisible() ? await target.evaluate(summaryRows) : null;
   }
   async function headingRows(name) {
     const h=page.getByRole('heading',{name,exact:true});
     return await h.count() ? await h.locator('..').evaluate(summaryRows) : null;
   }
-  const report={student:'Sample Student',timezone:'America/Los_Angeles',
+  const report={student:child.displayName,timezone:'America/Los_Angeles',
     overdue:overdueReady ? await rows('#overdue-submissions') : null,
     upcoming:await rows('.upcoming-submissions'),
     events:await headingRows('Upcoming Events'),

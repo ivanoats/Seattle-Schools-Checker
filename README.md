@@ -32,9 +32,98 @@ To add Schoology separately, run `npm run setup:keychain -- schoology` and enter
 ./bin/checker check sugarmate 2026-11-05
 ```
 
-`status` checks only whether the scoped Keychain entry exists. `login` verifies the session or signs in and returns status. `check source` selects Sample and returns grades, active missing flags, attendance and tardies. Grade percentages and letter grades remain as published; callers must handle inconsistent values and term transitions. An unavailable assignment table is explicitly marked unavailable.
+`status` checks whether the scoped Keychain entry exists.
+`check source` selects the configured child and returns published grades,
+active missing flags, attendance and tardies. An unavailable assignment
+table is marked unavailable.
 
-`check schoology` verifies the exact Sample Student student banner and returns the rendered parent summary: the expanded overdue list, upcoming work, calendar events, and recently completed items. It ignores hidden overdue rows, keeps unavailable sections null, and does not treat Schoology overdue as Source missing. Details such as instructions, teacher feedback and full submission status still require opening relevant assignment pages through the normal read-only Chrome workflow. If another child is selected, the checker stops; run `login schoology` and select Sample in its Chrome window.
+`check schoology` verifies the configured child banner and reads the visible
+parent summary. Details such as teacher feedback and full submission
+history can require a separate read in normal Chrome.
+
+## Child configuration
+
+The installed automation uses the built-in Sample mapping when the local
+configuration file is absent. To configure other children, put a
+`children.json` file in
+`~/Library/Application Support/SeattleSourceChecker/`. Keep it local and
+set its permissions to `600`. This example uses synthetic children.
+
+```json
+{
+  "defaultChild": "alex-one",
+  "children": [
+    {
+      "id": "alex-one",
+      "displayName": "Alex One",
+      "providers": {
+        "source": {
+          "tabLabel": "Alex",
+          "tabHref": "/guardian/home.html?student=1",
+          "studentHeading": "One, Alex",
+          "term": "2026-S1"
+        },
+        "schoology": { "banner": "You are viewing as Alex One" }
+      }
+    },
+    {
+      "id": "alex-two",
+      "displayName": "Alex Two",
+      "providers": {
+        "source": {
+          "tabLabel": "Alex",
+          "tabHref": "/guardian/home.html?student=2",
+          "studentHeading": "Two, Alex",
+          "term": "2026-S1"
+        },
+        "schoology": { "banner": "You are viewing as Alex Two" }
+      }
+    }
+  ]
+}
+```
+
+Copy actual labels and heading text from your guardian view. For duplicate
+Source tab names, set each `tabHref` to the verified link path and query.
+Omit it for a unique tab. Each provider heading or banner must be unique
+among configured children. Add only providers linked to the guardian
+account. The optional Source `term` is an operator-verified comparison
+scope. Review it at term rollover. An unknown or different term leaves the
+portable comparison unavailable.
+
+Existing commands use `defaultChild`. Keep that value set to the child your
+scheduled report is for. After the normal `npm run build`, select another
+child explicitly with:
+
+```sh
+./bin/checker check source --child alex-two
+./bin/checker login schoology --child alex-two
+./bin/checker check schoology --child alex-two
+```
+
+During Schoology login, select the child in the opened Chrome window.
+Each additional child gets a dedicated Schoology profile. If the portal
+resets selection, the check requests interactive selection again.
+Source selects the configured link on each check. Both portals verify
+the selected child before extraction. Existing guardian credentials
+continue to use the same per-service Keychain entries.
+
+## Portable report model
+
+School checks retain the existing `report` object and add a versioned
+`observation`. The observation carries child ID, provider, check time,
+coverage and assignment evidence. To build the portable report model,
+send a JSON object containing `childId`, `cutoff` (an ISO timestamp at or
+after collection), and `source` and/or `schoology` observations to
+`node src/report-cli.js` on stdin. Optionally supply `timezone` and
+a previous Friday Source observation as `baseline`. The result separates
+Source missing flags, Schoology submission receipts, upcoming deadlines
+and uncertain overdue items. A cleared missing flag requires affirmative
+evidence from the same assignment row.
+
+The existing Codex workflow still composes the Friday PDF and uses its
+existing comparison history. The portable model is available for the
+hosted runner and for local verification.
 
 Schoology passwords are sent only to `https://app.schoology.com/login`. Only direct parent email/password login is automated. District SSO, MFA, CAPTCHA, and unexpected permissions remain interactive. No session cookies or tokens are exported from normal Chrome, no internal API requests are replayed, and no App Center registration or API consumer key is required for this browser implementation. Private Chrome profiles still contain sensitive session cookies and must remain protected.
 

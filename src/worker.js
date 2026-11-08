@@ -1,11 +1,29 @@
 import { chromium } from 'playwright';
-import { mkdir, chmod, open, unlink } from 'node:fs/promises';
+import { mkdir, chmod, open, readFile, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { CheckError, ensureLogin, sites } from './auth.js';
 import { readSource } from './source.js';
 import { readGlucose } from './glucose.js';
-import { readSchoology, selectSample } from './schoology.js';
+import { readSchoology, verifySchoologyChild } from './schoology.js';
+import { configuredChild } from './core/children.js';
+import { legacyChild, legacyConfig } from './local-child.js';
+import { observeSchool } from './core/observations.js';
+
+async function loadChild(dataDir, childId, service) {
+  let file;
+  try { file = await readFile(path.join(dataDir, 'children.json'), 'utf8'); }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw new CheckError('child_config_unavailable');
+  }
+  let child;
+  try { child = configuredChild(file === undefined ? legacyConfig : JSON.parse(file), childId); }
+  catch (error) {
+    throw new CheckError(error.message === 'child_not_configured' ? error.message : 'invalid_child_config');
+  }
+  if (!child.providers[service]) throw new CheckError('child_provider_not_configured');
+  return child;
+}
 
 process.umask(0o077);
 let context, lock, lockPath;
@@ -18,13 +36,16 @@ try {
     if (input.length > 65536) throw new CheckError('invalid_request');
   }
   const request = JSON.parse(input); input = '';
-  const { service, operation, dates = [], credentials } = request;
-  if (!sites[service] || !['login','check'].includes(operation)) throw new CheckError('invalid_request');
+  const { service, operation, dates = [], credentials, childId } = request;
+  if (!Object.hasOwn(sites, service) || !['login','check'].includes(operation)) throw new CheckError('invalid_request');
   const dataDir = path.join(homedir(), 'Library', 'Application Support', 'SeattleSourceChecker');
   await mkdir(dataDir, { recursive:true, mode:0o700 }); await chmod(dataDir,0o700);
+  const child = service === 'sugarmate' ? null : await loadChild(dataDir, childId, service);
   lockPath = path.join(dataDir, service + '.lock');
   try { lock = await open(lockPath, 'wx', 0o600); } catch { throw new CheckError('check_already_running'); }
-  const profile = path.join(dataDir, service + '-chrome');
+  const profileName = service === 'schoology' && child.id !== legacyChild.id
+    ? `schoology-${child.id}-chrome` : `${service}-chrome`;
+  const profile = path.join(dataDir, profileName);
   await mkdir(profile, { mode:0o700, recursive:true }); await chmod(profile,0o700);
   phase = 'browser';
   context = await chromium.launchPersistentContext(profile, { channel:'chrome', headless:operation !== 'login',
@@ -35,25 +56,29 @@ try {
   phase = 'authentication';
   await ensureLogin(page, service, credentials, operation === 'login' ? 180000 : 15000);
   if (credentials) { credentials.password = ''; credentials.username = ''; }
-  if (service === 'schoology') {
-    try {await selectSample(page);}
-    catch(error) {
-      if (operation !== 'login' || error.status !== 'schoology_select_sample_required') throw error;
-      // Interactive login may need the parent to select the linked child once.
-      try {await page.waitForFunction(()=>document.querySelector('#child-session-banner')?.textContent.trim()==='You are viewing as Sample Student',null,{timeout:180000});}
-      catch {throw error;}
-    }
+  if (service === 'schoology' && operation === 'login') {
+    await verifySchoologyChild(page, child, 180000);
   }
   result = { status:'ok', service, authentication:credentials ? 'keychain' : 'existing_session', checkedAt:new Date().toISOString() };
   phase = 'report';
-  if (operation === 'check') result.report = service === 'source' ? await readSource(page) : service === 'schoology' ? await readSchoology(page) : await readGlucose(page, dates);
+  if (operation === 'check') {
+    if (child) {
+      const read = service === 'source' ? readSource : readSchoology;
+      const { assignmentRows, ...report } = await read(page, child);
+      result.report = report;
+      result.observation = observeSchool({ provider: service, child, report, assignmentRows,
+        observedAt: new Date().toISOString() });
+    } else {
+      result.report = await readGlucose(page, dates);
+    }
+  }
   result.checkedAt = new Date().toISOString();
 } catch (error) {
   // Do not return browser exception messages: they may include form values or URLs with tokens.
   result = { status:error instanceof CheckError ? error.status : 'check_failed', phase,
     ...(error instanceof CheckError && error.login ? {login:error.login} : {}),
     errorKind: ['TimeoutError','TypeError','SyntaxError'].includes(error.name) ? error.name : 'Error',
-    codeLocation: error.stack?.match(/src\/(?:auth|source|glucose|schoology|worker)\.js:\d+:\d+/g)?.[0] || null,
+    codeLocation: error.stack?.match(/src\/(?:core\/)?[a-z-]+\.js:\d+:\d+/)?.[0] || null,
     reason: [['Navigation interrupted','interrupted'],['net::ERR','network'],['strict mode','ambiguous_locator'],['Target page','browser_closed'],['route','routing'],['locator','page_layout']].find(([text])=>error.message?.includes(text))?.[1] || 'unclassified' };
   process.exitCode = 1;
 } finally {
