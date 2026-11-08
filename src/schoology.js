@@ -1,7 +1,6 @@
 import { CheckError, sites } from './auth.js';
-import { legacyChild } from './local-child.js';
 
-export async function verifySchoologyChild(page, child = legacyChild, timeout = 10000) {
+export async function verifySchoologyChild(page, child, timeout = 10000) {
   await page.goto(sites.schoology.start, {waitUntil:'domcontentloaded'});
   try {
     await page.waitForFunction(banner => {
@@ -9,12 +8,9 @@ export async function verifySchoologyChild(page, child = legacyChild, timeout = 
       return selected?.getClientRects().length && selected.innerText.trim() === banner;
     }, child.providers.schoology.banner, { timeout });
   } catch {
-    throw new CheckError(child.id === legacyChild.id
-      ? 'schoology_select_sample_required' : 'schoology_select_child_required');
+    throw new CheckError('schoology_select_child_required');
   }
 }
-
-export const selectSample = page => verifySchoologyChild(page, legacyChild, 1000);
 
 // Only inspect rendered rows. Schoology keeps future/extra overdue rows hidden
 // in its DOM; these are not evidence of an active overdue status.
@@ -37,7 +33,7 @@ export function summaryRows(root) {
   }).filter(Boolean);
 }
 
-export async function readSchoology(page, child = legacyChild) {
+export async function readSchoology(page, child) {
   await verifySchoologyChild(page, child);
   await page.locator('#right-column-inner').waitFor({ state: 'attached' });
   // The overdue request finishes later than the other sidebar requests. Until

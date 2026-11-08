@@ -50,7 +50,11 @@ export function windowsFor(date) {
   return result;
 }
 
-export async function readGlucose(page, dates) {
+export async function readGlucose(page, dates, feed) {
+  if (!feed || typeof feed.feedLabel !== 'string' || !feed.feedLabel.trim()
+      || typeof feed.studentName !== 'string' || !feed.studentName.trim()) {
+    throw new CheckError('invalid_glucose_feed_config');
+  }
   if (!dates.length) throw new CheckError('dates_required');
   // The configured settings are read afresh on every comparison.
   await page.goto('https://app.sugarmate.io/settings/ranges');
@@ -61,7 +65,7 @@ export async function readGlucose(page, dates) {
   await page.locator('#graph button#glucose-activity-icon').first().waitFor();
   const feedLabel = (await page.locator('#users-data').innerText()).replace(/\u00ad/g, '').trim();
   const sourceLabel = (await page.locator('#dexcom-branding').innerText()).replace(/\u00ad/g, '').trim();
-  if (feedLabel !== "Sample CGM feed" || sourceLabel !== 'CGM Data by Dexcom') throw new CheckError('glucose_feed_identity_changed');
+  if (feedLabel !== feed.feedLabel || sourceLabel !== 'CGM Data by Dexcom') throw new CheckError('glucose_feed_identity_changed');
   const read = () => page.locator('#graph').evaluate(el => ({
     cells: Array.from(el.querySelectorAll('[class*="Cell_container"]')).map(c => ({
       right: parseFloat(c.style.right), width: parseFloat(c.style.width),
@@ -106,7 +110,7 @@ export async function readGlucose(page, dates) {
     collect(await read());
   }
   const data = Array.from(points.values());
-  return { feed:{label:feedLabel,source:sourceLabel,confirmedFor:'Sample Student'}, timezone:'America/Los_Angeles', thresholds:{ low, high }, approximate:true,
+  return { feed:{label:feedLabel,source:sourceLabel,confirmedFor:feed.studentName}, timezone:'America/Los_Angeles', thresholds:{ low, high }, approximate:true,
     limitations:['Graph-derived timestamps; values at 400 may be clipped.', 'A/B lunch unknown; Tuesday/Thursday P5 ending uncertain.', 'Standard period windows require date-specific schedule verification.'],
     days:windows.map(({date,windows}) => ({ date, windows:Object.fromEntries(Object.entries(windows).map(([name,w]) => [name, { start:new Date(w.start).toISOString(), end:new Date(w.end).toISOString(), ...summarize(data,w.start,w.end,low,high) }])) })) };
 }

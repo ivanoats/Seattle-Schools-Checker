@@ -43,11 +43,11 @@ history can require a separate read in normal Chrome.
 
 ## Child configuration
 
-The installed automation uses the built-in Sample mapping when the local
-configuration file is absent. To configure other children, put a
+The checker reads student mappings from a private local
 `children.json` file in
 `~/Library/Application Support/SeattleSourceChecker/`. Keep it local and
-set its permissions to `600`. This example uses synthetic children.
+set its permissions to `600`. Use `default-child` as the ID for an existing
+Schoology profile. This example uses synthetic children.
 
 ```json
 {
@@ -127,7 +127,10 @@ hosted runner and for local verification.
 
 Schoology passwords are sent only to `https://app.schoology.com/login`. Only direct parent email/password login is automated. District SSO, MFA, CAPTCHA, and unexpected permissions remain interactive. No session cookies or tokens are exported from normal Chrome, no internal API requests are replayed, and no App Center registration or API consumer key is required for this browser implementation. Private Chrome profiles still contain sensitive session cookies and must remain protected.
 
-`check sugarmate` accepts up to seven dates and returns aggregate ranges, observed high/low intervals, sample coverage, school periods, prior evening (6–11 p.m.), and overnight (11 p.m.–school start). The feed labelled Sample Account was confirmed by Ivan to be Sample’s. It reads the configured range each time. It reads plotted points, not a raw CGM export; timestamps are approximate and values at 400 may be clipped. It never fills missing readings. Outputs use UTC ISO timestamps with the Seattle timezone stated; convert to Seattle time for reports. Verify date-specific school announcements before accepting standard class windows. Geometry includes both lunch possibilities; Tuesday/Thursday Biology’s last ten minutes remain uncertain. These observations do not establish the cause of an absence or supply treatment advice.
+The legacy Sugarmate check reads `sugarmate.json` from the same private
+directory. Set `feedLabel` to the verified feed label and `studentName` to
+the student it belongs to. Keep this file outside the repository. The
+checker verifies the label and Dexcom attribution before reading data.
 
 `check` runs headlessly; `login` opens Chrome and waits up to three minutes for you to complete any account setup, MFA, or consent yourself. Both use separate private profiles under `~/Library/Application Support/SeattleSourceChecker/` (directory mode 700). Cookies are sensitive session credentials; profiles stay outside the repository. Neither Chrome’s normal profile nor its debug port is used. The worker does not capture screenshots, network traces, videos, console logs, or password-containing exception messages. Schoology static dashboard assets may be read from its own asset CDN; password writes are still restricted to its login endpoint. Source credentials are restricted to its exact HTTPS origin; Sugarmate credential requests are restricted to its observed HTTPS OAuth token endpoint. Sugarmate’s country selection is set to US for this Seattle-based workflow.
 

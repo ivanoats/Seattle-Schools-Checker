@@ -5,3 +5,7 @@ build/
 .env*
 playwright-report/
 test-results/
+
+# Private local identity configuration
+children.json
+sugarmate.json

@@ -1,11 +1,10 @@
 import { CheckError, sites } from './auth.js';
-import { legacyChild } from './local-child.js';
 
 export function parseAttendance(text) {
   return text.split('\n').map(line => line.match(/^(.*?) - (\d{2})\/(\d{2})\/(\d{4}) - ([A-Z]+)$/))
     .filter(Boolean).map(m => ({ period: m[1], date: `${m[4]}-${m[2]}-${m[3]}`, code: m[5] }));
 }
-export async function readSource(page, child = legacyChild) {
+export async function readSource(page, child) {
   const { tabLabel, tabHref, studentHeading } = child.providers.source;
   const verifyHeading = async label => {
     if (new URL(page.url()).origin !== sites.source.origin) throw new CheckError('source_child_tab_unverified');

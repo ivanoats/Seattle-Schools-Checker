@@ -7,17 +7,22 @@ import { readSource } from './source.js';
 import { readGlucose } from './glucose.js';
 import { readSchoology, verifySchoologyChild } from './schoology.js';
 import { configuredChild } from './core/children.js';
-import { legacyChild, legacyConfig } from './local-child.js';
 import { observeSchool } from './core/observations.js';
 
-async function loadChild(dataDir, childId, service) {
+async function readLocalConfig(dataDir, filename, missingStatus) {
   let file;
-  try { file = await readFile(path.join(dataDir, 'children.json'), 'utf8'); }
+  try { file = await readFile(path.join(dataDir, filename), 'utf8'); }
   catch (error) {
-    if (error.code !== 'ENOENT') throw new CheckError('child_config_unavailable');
+    throw new CheckError(error.code === 'ENOENT' ? missingStatus : 'local_config_unavailable');
   }
+  try { return JSON.parse(file); }
+  catch { throw new CheckError('invalid_local_config'); }
+}
+
+async function loadChild(dataDir, childId, service) {
+  const config = await readLocalConfig(dataDir, 'children.json', 'child_config_required');
   let child;
-  try { child = configuredChild(file === undefined ? legacyConfig : JSON.parse(file), childId); }
+  try { child = configuredChild(config, childId); }
   catch (error) {
     throw new CheckError(error.message === 'child_not_configured' ? error.message : 'invalid_child_config');
   }
@@ -41,9 +46,11 @@ try {
   const dataDir = path.join(homedir(), 'Library', 'Application Support', 'SeattleSourceChecker');
   await mkdir(dataDir, { recursive:true, mode:0o700 }); await chmod(dataDir,0o700);
   const child = service === 'sugarmate' ? null : await loadChild(dataDir, childId, service);
+  const feed = service === 'sugarmate' && operation === 'check'
+    ? await readLocalConfig(dataDir, 'sugarmate.json', 'glucose_feed_config_required') : null;
   lockPath = path.join(dataDir, service + '.lock');
   try { lock = await open(lockPath, 'wx', 0o600); } catch { throw new CheckError('check_already_running'); }
-  const profileName = service === 'schoology' && child.id !== legacyChild.id
+  const profileName = service === 'schoology' && child.id !== 'default-child'
     ? `schoology-${child.id}-chrome` : `${service}-chrome`;
   const profile = path.join(dataDir, profileName);
   await mkdir(profile, { mode:0o700, recursive:true }); await chmod(profile,0o700);
@@ -69,7 +76,7 @@ try {
       result.observation = observeSchool({ provider: service, child, report, assignmentRows,
         observedAt: new Date().toISOString() });
     } else {
-      result.report = await readGlucose(page, dates);
+      result.report = await readGlucose(page, dates, feed);
     }
   }
   result.checkedAt = new Date().toISOString();

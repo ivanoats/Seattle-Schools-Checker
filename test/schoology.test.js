@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
-import {summaryRows,selectSample} from '../src/schoology.js';
+import {summaryRows,verifySchoologyChild} from '../src/schoology.js';
 import {isSignedIn} from '../src/auth.js';
 
 test('Schoology reads rendered work without counting hidden overdue rows or external links',async()=>{
@@ -20,7 +20,7 @@ test('Schoology reads rendered work without counting hidden overdue rows or exte
     assert.equal(rows[1].submissionStatus,'This material has been submitted but not yet graded');
   } finally {await browser.close();}
 });
-test('Schoology login is separate from verified Sample identity',async()=>{
+test('Schoology login is separate from verified student identity',async()=>{
   const browser=await chromium.launch({channel:'chrome',headless:true});
   try {
     const page=await browser.newPage();
@@ -28,7 +28,8 @@ test('Schoology login is separate from verified Sample identity',async()=>{
     await page.route('**/*',r=>r.fulfill({contentType:'text/html',body:`<a aria-label="Calendar" href="/parent/calendar">Calendar</a><button>Courses</button><div id="child-session-banner">You are viewing as ${name}</div>`}));
     await page.goto('https://app.schoology.com/parent/home');
     assert.equal(await isSignedIn(page,'schoology'),true);
-    await assert.rejects(selectSample(page),e=>e.status==='schoology_select_sample_required');
-    name='Sample Student';await selectSample(page);
+    const child = { providers: { schoology: { banner: 'You are viewing as Sample Student' } } };
+    await assert.rejects(verifySchoologyChild(page,child,500),e=>e.status==='schoology_select_child_required');
+    name='Sample Student';await verifySchoologyChild(page,child,500);
   } finally {await browser.close();}
 });
