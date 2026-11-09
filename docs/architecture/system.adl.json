@@ -1,0 +1,352 @@
+{
+  "format": "school-checker-adl",
+  "version": 1,
+  "system": "Seattle Source checker",
+  "asOf": "2026-11-08",
+  "sourceBaseline": "0312de9",
+  "views": [
+    {
+      "id": "local-context",
+      "level": "context",
+      "status": "current",
+      "document": "current.md",
+      "elements": [
+        "guardian",
+        "checker",
+        "source",
+        "schoology"
+      ],
+      "relationships": [
+        [
+          "guardian",
+          "checker",
+          "Configures and reads school reports"
+        ],
+        [
+          "checker",
+          "source",
+          "Reads authenticated guardian pages"
+        ],
+        [
+          "checker",
+          "schoology",
+          "Reads authenticated parent pages"
+        ]
+      ]
+    },
+    {
+      "id": "local-containers",
+      "level": "container",
+      "status": "current",
+      "document": "current.md",
+      "elements": [
+        "guardian",
+        "codex",
+        "helper",
+        "worker",
+        "browser",
+        "keychain",
+        "local_reports",
+        "portals"
+      ],
+      "relationships": [
+        [
+          "guardian",
+          "codex",
+          "Reads school updates"
+        ],
+        [
+          "guardian",
+          "helper",
+          "Enters credentials locally"
+        ],
+        [
+          "codex",
+          "helper",
+          "Invokes CLI and reads JSON"
+        ],
+        [
+          "helper",
+          "keychain",
+          "Reads scoped credentials on session miss"
+        ],
+        [
+          "helper",
+          "worker",
+          "Passes requests over private stdin"
+        ],
+        [
+          "worker",
+          "browser",
+          "Controls private Chrome profiles"
+        ],
+        [
+          "browser",
+          "portals",
+          "Reads parent pages over HTTPS"
+        ],
+        [
+          "codex",
+          "local_reports",
+          "Writes dated Friday PDFs"
+        ]
+      ]
+    },
+    {
+      "id": "local-worker-components",
+      "level": "component",
+      "status": "current",
+      "document": "current.md",
+      "elements": [
+        "helper",
+        "worker_entry",
+        "auth",
+        "source_reader",
+        "schoology_reader",
+        "browser"
+      ],
+      "relationships": [
+        [
+          "helper",
+          "worker_entry",
+          "Supplies service and operation"
+        ],
+        [
+          "worker_entry",
+          "auth",
+          "Establishes portal session"
+        ],
+        [
+          "worker_entry",
+          "source_reader",
+          "Dispatches Source check"
+        ],
+        [
+          "worker_entry",
+          "schoology_reader",
+          "Dispatches Schoology check"
+        ],
+        [
+          "auth",
+          "browser",
+          "Signs in through allowlisted requests"
+        ],
+        [
+          "source_reader",
+          "browser",
+          "Reads and verifies Source pages"
+        ],
+        [
+          "schoology_reader",
+          "browser",
+          "Reads and verifies Schoology pages"
+        ]
+      ]
+    },
+    {
+      "id": "cloud-containers",
+      "level": "container",
+      "status": "proposed",
+      "document": "cloudflare.md",
+      "elements": [
+        "guardian",
+        "cloud_control",
+        "queue",
+        "cloud_runner",
+        "browser_run",
+        "worker_secrets",
+        "d1",
+        "private_r2",
+        "portals"
+      ],
+      "relationships": [
+        [
+          "guardian",
+          "cloud_control",
+          "Authenticates and reads authorized reports"
+        ],
+        [
+          "cloud_control",
+          "d1",
+          "Resolves membership and schedules"
+        ],
+        [
+          "cloud_control",
+          "queue",
+          "Dispatches due job IDs"
+        ],
+        [
+          "cloud_runner",
+          "queue",
+          "Consumes and acknowledges jobs"
+        ],
+        [
+          "cloud_runner",
+          "worker_secrets",
+          "Reads pilot credentials"
+        ],
+        [
+          "cloud_runner",
+          "browser_run",
+          "Creates isolated browser contexts"
+        ],
+        [
+          "browser_run",
+          "portals",
+          "Reads authenticated school pages"
+        ],
+        [
+          "cloud_runner",
+          "d1",
+          "Commits verified observations"
+        ],
+        [
+          "cloud_control",
+          "private_r2",
+          "Publishes and serves private PDFs"
+        ]
+      ]
+    }
+  ],
+  "integrations": {
+    "source": {
+      "status": "active",
+      "cloudPilot": true
+    },
+    "schoology": {
+      "status": "active",
+      "cloudPilot": true
+    },
+    "sugarmate": {
+      "status": "shelved",
+      "cloudPilot": false
+    }
+  },
+  "invariants": [
+    "Verify student identity before extracting or committing records.",
+    "Keep provider evidence and unavailable sections distinct.",
+    "Scope child, session and report access to the authorized family.",
+    "Keep credential material and student records out of diagnostics."
+  ],
+  "elements": {
+    "guardian": {
+      "kind": "person",
+      "name": "Guardian"
+    },
+    "checker": {
+      "kind": "system",
+      "name": "Seattle Source checker"
+    },
+    "source": {
+      "kind": "external_system",
+      "name": "SPS The Source"
+    },
+    "schoology": {
+      "kind": "external_system",
+      "name": "Schoology"
+    },
+    "portals": {
+      "kind": "external_system_group",
+      "members": [
+        "source",
+        "schoology"
+      ]
+    },
+    "codex": {
+      "kind": "container",
+      "technology": "Codex heartbeat and chat"
+    },
+    "helper": {
+      "kind": "container",
+      "technology": "Swift and shell",
+      "source": [
+        "bin/checker",
+        "native/KeychainHelper.swift"
+      ]
+    },
+    "worker": {
+      "kind": "container",
+      "technology": "Node.js and Playwright"
+    },
+    "browser": {
+      "kind": "container",
+      "technology": "Local Chrome"
+    },
+    "keychain": {
+      "kind": "store",
+      "technology": "macOS login Keychain"
+    },
+    "local_reports": {
+      "kind": "store",
+      "technology": "Local PDF files"
+    },
+    "worker_entry": {
+      "kind": "component",
+      "parent": "worker",
+      "source": [
+        "src/worker.js"
+      ]
+    },
+    "auth": {
+      "kind": "component",
+      "parent": "worker",
+      "source": [
+        "src/auth.js"
+      ]
+    },
+    "source_reader": {
+      "kind": "component",
+      "parent": "worker",
+      "source": [
+        "src/source.js"
+      ]
+    },
+    "schoology_reader": {
+      "kind": "component",
+      "parent": "worker",
+      "source": [
+        "src/schoology.js"
+      ]
+    },
+    "cloud_control": {
+      "kind": "container",
+      "technology": "Cloudflare Workers"
+    },
+    "queue": {
+      "kind": "container",
+      "technology": "Cloudflare Queues"
+    },
+    "cloud_runner": {
+      "kind": "container",
+      "technology": "Worker queue consumer"
+    },
+    "browser_run": {
+      "kind": "container",
+      "technology": "Cloudflare Browser Run"
+    },
+    "worker_secrets": {
+      "kind": "store",
+      "technology": "Worker Secrets"
+    },
+    "d1": {
+      "kind": "store",
+      "technology": "Cloudflare D1"
+    },
+    "private_r2": {
+      "kind": "store",
+      "technology": "Private Cloudflare R2 bucket"
+    }
+  },
+  "schedule": {
+    "timezone": "America/Los_Angeles",
+    "weekdays": [
+      "MO",
+      "TU",
+      "WE",
+      "TH",
+      "FR"
+    ],
+    "localTime": "17:00",
+    "familyReportDay": "FR"
+  }
+}
