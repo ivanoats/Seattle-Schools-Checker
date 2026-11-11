@@ -74,6 +74,21 @@ function ssh(name, command, { input, timeout = 120000 } = {}) {
   }).toString();
 }
 
+function checkerStatus(output) {
+  return /^[a-z_]{1,64}$/.test(output?.status ?? '') ? output.status : 'check_failed';
+}
+
+function setupFailureReason(error) {
+  if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') return 'timeout';
+  if (error.code === 'ENOBUFS') return 'output_limit';
+  const log = error.stderr?.toString() ?? '';
+  if (/Temporary failure resolving|Could not resolve|EAI_AGAIN|ENOTFOUND|ECONNRESET|Failed to fetch/i.test(log)) return 'network';
+  if (/npm (ERR!|error)/i.test(log)) return 'npm_install';
+  if (/^E: /m.test(log) || /Failed to install browsers/i.test(log)) return 'chrome_install';
+  if (/codespace|connection (closed|refused)|ssh/i.test(log)) return 'ssh';
+  return 'unclassified';
+}
+
 async function runLocal() {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     return { service: 'source', status: 'interactive_terminal_required' };
@@ -98,13 +113,17 @@ async function runLocal() {
     if (!child.providers.source) throw new CheckError('child_provider_not_configured');
     const key = randomBytes(32).toString('hex');
     stage = 'mac_comparison_baseline';
-    let baseline;
+    let baseline, macBaseline = 'check_failed';
     try {
       const { stdout } = await exec(join(root, 'bin/checker'), ['check', 'source'],
         { timeout: 90000, maxBuffer: 2 * 1024 * 1024, signal: abort.signal });
       const local = JSON.parse(stdout);
       if (local.status === 'ok' && local.report?.student === child.displayName) baseline = digestSections(local.report, key);
-    } catch { /* A failed local baseline does not block the hosted sign-in test. */ }
+      macBaseline = baseline ? 'ok' : local.status === 'ok' ? 'child_unverified' : checkerStatus(local);
+    } catch (error) {
+      // A failed local baseline does not block the hosted sign-in test.
+      try { macBaseline = checkerStatus(JSON.parse(error.stdout)); } catch { /* Keep the generic status. */ }
+    }
     abort.signal.throwIfAborted();
 
     stage = 'codespace_creation';
@@ -123,19 +142,30 @@ async function runLocal() {
       'scripts/browser-run/source-probe.js', 'scripts/browser-run/portal-start.js',
       'scripts/browser-run/source-live.js'], { cwd: root });
     let preflight;
-    try {
-      preflight = ssh(codespace, `set -eu
-      umask 077
-      mkdir -p /tmp/source-live-verification
-      cd /tmp/source-live-verification
-      tar -xf -
-      npm ci --ignore-scripts --no-audit --no-fund >&2
-      if ! command -v google-chrome >/dev/null; then npx --no-install playwright install --with-deps chrome >&2; fi
-      node scripts/browser-run/source-probe.js`, { input: archive, timeout: 600000 });
-    } catch (error) {
-      try { preflight = JSON.parse(error.stdout?.toString()); } catch { throw error; }
-      if (preflight.result === 'portal_request_rejected') throw new CheckError('portal_request_rejected');
-      throw new CheckError('hosted_login_page_unverified');
+    for (let attempt = 1; preflight === undefined; attempt += 1) {
+      try {
+        preflight = ssh(codespace, `set -eu
+        umask 077
+        mkdir -p /tmp/source-live-verification
+        cd /tmp/source-live-verification
+        tar -xf -
+        npm ci --ignore-scripts --no-audit --no-fund >&2
+        if ! command -v google-chrome >/dev/null; then npx --no-install playwright install --with-deps chrome >&2; fi
+        node scripts/browser-run/source-probe.js`, { input: archive, timeout: 600000 });
+      } catch (error) {
+        try { preflight = JSON.parse(error.stdout?.toString()); } catch {
+          // No credentials exist at this stage. Report a bounded reason only.
+          const reason = setupFailureReason(error);
+          if (attempt === 1 && reason === 'network') {
+            console.log('Hosted setup hit a network error. Retrying once.');
+            await new Promise(resolve => setTimeout(resolve, 15000));
+            continue;
+          }
+          throw new CheckError(`hosted_setup_failed_${reason}`);
+        }
+        if (preflight.result === 'portal_request_rejected') throw new CheckError('portal_request_rejected');
+        throw new CheckError('hosted_login_page_unverified');
+      }
     }
     if (JSON.parse(preflight).result !== 'login_form_reached') throw new CheckError('hosted_login_page_unverified');
     abort.signal.throwIfAborted();
@@ -161,6 +191,7 @@ async function runLocal() {
     try {
       result = JSON.parse(ssh(codespace, 'cd /tmp/source-live-verification && env -u DEBUG -u PWDEBUG -u NODE_DEBUG node scripts/browser-run/source-live.js --remote',
         { input: JSON.stringify({ credentials, child: sourceChild, key, baseline }) }));
+      if (!baseline) result = { ...result, macBaseline };
     } catch (error) {
       let status;
       try { status = JSON.parse(error.stdout?.toString()); } catch { throw error; }
