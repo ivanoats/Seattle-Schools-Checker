@@ -34,6 +34,8 @@ async function runHosted() {
   let stage = 'request';
   try {
     let body = '';
+    // Decode as one stream so a character split across chunks stays intact.
+    process.stdin.setEncoding('utf8');
     for await (const chunk of process.stdin) {
       body += chunk;
       if (body.length > 8192) throw new CheckError('invalid_request');
@@ -72,7 +74,8 @@ async function runHosted() {
 }
 
 const codespaceName = /^[a-z0-9-]+$/;
-const hostedDirectory = '/tmp/source-live-verification';
+// A private directory in the hosted user's home, not a shared temporary one.
+const hostedDirectory = '"$HOME/source-live-verification"';
 const shippedFiles = ['package.json', 'package-lock.json',
   'src/auth.js', 'src/source.js', 'src/core/children.js',
   'scripts/browser-run/commands.js', 'scripts/browser-run/portal-start.js',
@@ -248,6 +251,7 @@ async function runLocal() {
 
     stage = 'credential_entry';
     await promptCredentials(terminal, mute, abort.signal, credentials);
+    abort.signal.throwIfAborted();
 
     stage = 'hosted_check';
     const sourceChild = { id: child.id, displayName: child.displayName, providers: { source: child.providers.source } };

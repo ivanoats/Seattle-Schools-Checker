@@ -19,7 +19,7 @@ const [requestedChild] = args.filter(arg => arg !== '--unattended');
 if (!['source', 'schoology'].includes(service) || (unattended && service !== 'schoology') ||
     !process.stdin.isTTY || !process.stdout.isTTY) {
   console.error('Run interactively: node scripts/browser-run/live.js source|schoology [child-id] [--unattended]');
-  process.exit(2);
+  process.exit(2); // skipcq: JS-0263 -- usage error before any browser or session exists
 }
 
 const localCheck = promisify(execFile);
@@ -109,6 +109,7 @@ try {
   const cdp = await context.newCDPSession(page);
   if (unattended) {
     stage = 'unattended_login';
+    abort.signal.throwIfAborted();
     loginHttpStatus = await signInSchoology(page, cdp, credentials);
     credentials.username = '';
     credentials.password = '';

@@ -50,7 +50,7 @@ function loginPage(page, context, redirectURL, onPost, onRedirect) {
           request: () => route.request(),
           abort: () => route.abort(),
           fallback: () => route.fallback(),
-          fulfill: async options => {
+          fulfill: options => {
             if (options.status !== 303) return route.fulfill(options);
             const location = options.response.headers().location;
             onRedirect(options.status, location);
