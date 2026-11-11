@@ -40,9 +40,9 @@ function fakeCdp(failing = []) {
   return { sent, handlers,
     on: (name, handler) => handlers.set(name, handler),
     off: (name, handler) => { if (handlers.get(name) === handler) handlers.delete(name); },
-    send: async (method, params) => {
+    send: (method, params) => {
       sent.push([method, params]);
-      if (failing.includes(method)) throw new Error('cdp_failed');
+      return failing.includes(method) ? Promise.reject(new Error('cdp_failed')) : Promise.resolve();
     },
     pause: event => handlers.get('Fetch.requestPaused')(event) };
 }
