@@ -5,6 +5,10 @@ test_patterns = ["test/**"]
 name = "javascript"
 enabled = true
 
+  [analyzers.meta]
+  environment = ["nodejs"]
+  module_system = "es-modules"
+
 [[analyzers]]
 name = "swift"
 enabled = true

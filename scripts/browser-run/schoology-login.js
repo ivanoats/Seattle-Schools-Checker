@@ -28,7 +28,7 @@ export function loginRequestAction(event, alreadyPosted) {
 export async function installLoginGuard(cdp) {
   let posted = false;
   let httpStatus = null;
-  let failure;
+  let failure = null;
   const handler = async event => {
     const { requestId } = event;
     try {
@@ -47,7 +47,7 @@ export async function installLoginGuard(cdp) {
       }
     } catch {
       failure ??= 'login_guard_failed';
-      await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }).catch(() => {});
+      await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }).catch(() => null);
     }
   };
   cdp.on('Fetch.requestPaused', handler);
@@ -95,6 +95,6 @@ export async function signInSchoology(page, cdp, credentials) {
     error.httpStatus = httpStatus;
     throw error;
   } finally {
-    await guard.close().catch(() => {});
+    await guard.close().catch(() => null);
   }
 }

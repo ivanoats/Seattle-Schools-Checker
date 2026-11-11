@@ -35,7 +35,12 @@ const configPath = join(homedir(), 'Library', 'Application Support', 'SeattleSou
 const checker = fileURLToPath(new URL('../../bin/checker', import.meta.url));
 const abort = new AbortController();
 let stage = 'configuration';
-let session, browser, report, child, credentials, loginHttpStatus;
+let session = null;
+let browser = null;
+let report = null;
+let child = null;
+let credentials = null;
+let loginHttpStatus = null;
 terminal.on('SIGINT', () => abort.abort());
 process.once('SIGTERM', () => abort.abort());
 
@@ -45,19 +50,19 @@ function compare(left, right) {
 }
 
 function compareSource(cloud, mac) {
-  const roster = report => report.courses.map(({ course, period, semester }) => [course, period, semester]);
-  const attendance = report => report.absences && report.tardies ? [report.absences, report.tardies] : null;
-  const missing = report => report.courses.map(({ course, period, missing }) => [course, period, missing]);
+  const roster = data => data.courses.map(({ course, period, semester }) => [course, period, semester]);
+  const attendance = data => data.absences && data.tardies ? [data.absences, data.tardies] : null;
+  const missingRows = data => data.courses.map(({ course, period, missing }) => [course, period, missing]);
   return { rosterAndSemesterGrades: compare(roster(cloud), roster(mac)),
     attendance: compare(attendance(cloud), attendance(mac)),
-    missingRows: compare(missing(cloud), missing(mac)),
+    missingRows: compare(missingRows(cloud), missingRows(mac)),
     missingCoverage: cloud.courses.some(course => course.missing === null)
       || mac.courses.some(course => course.missing === null) ? 'partial' : 'available' };
 }
 
 function compareSchoology(cloud, mac) {
   return Object.fromEntries(['overdue', 'upcoming', 'events', 'recentlyCompleted'].map(section => {
-    const project = report => report[section]?.map(({ assignment, course, url, submissionStatus, scheduledAt }) =>
+    const project = data => data[section]?.map(({ assignment, course, url, submissionStatus, scheduledAt }) =>
       [assignment, course, url, submissionStatus, scheduledAt]);
     return [section, compare(project(cloud), project(mac))];
   }));
@@ -113,9 +118,9 @@ try {
     if (new URL(devtoolsFrontendUrl).origin !== 'https://live.browser.run') {
       throw new CheckError('unexpected_live_view_destination');
     }
-    console.log('Open this private link yourself. It grants control of the session until it expires. Keep it in your terminal.');
-    console.log(devtoolsFrontendUrl);
-    console.log('Sign in on the school portal. In Schoology, select the student you want to verify.');
+    process.stdout.write('Open this private link yourself. It grants control of the session until it expires. Keep it in your terminal.\n');
+    process.stdout.write(`${devtoolsFrontendUrl}\n`);
+    process.stdout.write('Sign in on the school portal. In Schoology, select the student you want to verify.\n');
     await terminal.question('Return here and press Enter when ready to verify. ', { signal: AbortSignal.any([abort.signal, AbortSignal.timeout(180000)]) });
   }
   if (!await isSignedIn(page, service)) throw new CheckError('sign_in_unverified');
@@ -138,14 +143,14 @@ try {
     console.error(JSON.stringify({ service, status: 'browser_cleanup_unverified' }));
     process.exitCode = 1;
   }
-  await browser?.close().catch(() => {});
+  await browser?.close().catch(() => null);
 }
 
 if (report) {
   const options = requestedChild ? ['--child', child.id] : [];
   const result = { service, status: 'cloud_read_verified', macComparison: 'unavailable',
     ...(unattended && { authentication: 'fresh_automated_login', loginHttpStatus }) };
-  let mac;
+  let mac = null;
   try {
     const { stdout } = await localCheck(checker, ['check', service, ...options],
       { maxBuffer: 2 * 1024 * 1024, timeout: 90000, signal: abort.signal });
@@ -159,5 +164,5 @@ if (report) {
     result.macCheckerStatus = mac?.status === 'ok' ? 'child_unverified'
       : /^[a-z_]{1,64}$/.test(mac?.status ?? '') ? mac.status : 'check_failed';
   }
-  console.log(JSON.stringify(result));
+  process.stdout.write(`${JSON.stringify(result)}\n`);
 }

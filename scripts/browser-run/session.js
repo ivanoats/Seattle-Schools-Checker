@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
+import { trustedCommand } from './commands.js';
 
 export async function acquireBrowserRun(allowedDomains, keepAlive = 60000) {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   assert(token, 'cloudflare_token_required');
   const account = process.env.CLOUDFLARE_ACCOUNT_ID || (() => {
-    const { accounts } = JSON.parse(execFileSync('cf', ['auth', 'whoami'], { stdio: ['ignore', 'pipe', 'pipe'] }));
+    const { accounts } = JSON.parse(execFileSync(trustedCommand('cf'), ['auth', 'whoami'], { stdio: ['ignore', 'pipe', 'pipe'] }));
     assert.equal(accounts?.length, 1, 'cloudflare_account_selection_required');
     return accounts[0].id;
   })();

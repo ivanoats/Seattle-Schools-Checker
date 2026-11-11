@@ -10,9 +10,9 @@ import { acquireBrowserRun } from './session.js';
 const local = process.argv[2] === '--local';
 const started = performance.now();
 let stage = 'setup';
-let browser;
-let closeCloudSession;
-let server;
+let browser = null;
+let closeCloudSession = null;
+let server = null;
 const verified = [];
 
 // The intercepted POST uses Playwright's real route.fetch against loopback.
@@ -56,7 +56,7 @@ function loginPage(page, context, redirectURL, onPost, onRedirect) {
             onRedirect(options.status, location);
             // Playwright only routes the first URL in a redirect chain.
             // Start a fresh GET so the synthetic landing stays intercepted.
-            await route.fulfill({ contentType: 'text/html', body:
+            return route.fulfill({ contentType: 'text/html', body:
               `<script>location.replace(${JSON.stringify(location)})</script>` });
           },
           fetch: options => {
@@ -171,8 +171,8 @@ try {
     await closeCloudSession();
     closeCloudSession = null;
   }
-  console.log(JSON.stringify({ status: 'ok', browser: local ? 'local Chrome' : 'Cloudflare Browser Run',
-    chromeVersion, verified, elapsedSeconds: Math.round((performance.now() - started) / 100) / 10 }));
+  process.stdout.write(`${JSON.stringify({ status: 'ok', browser: local ? 'local Chrome' : 'Cloudflare Browser Run',
+    chromeVersion, verified, elapsedSeconds: Math.round((performance.now() - started) / 100) / 10 })}\n`);
 } catch (error) {
   if (process.env.BROWSER_RUN_DEBUG === '1') {
     console.error(error.message.split('\n')[0]
