@@ -1,32 +1,40 @@
 import { chromium } from 'playwright';
 import { sites } from '../../src/auth.js';
+import { classifyPortalStart } from './portal-start.js';
+
+// Usage: node scripts/browser-run/source-probe.js [--headed] [--label name]
+// The label names the runner in the output so results from several
+// environments can be compared side by side.
+const args = process.argv.slice(2);
+const headless = !args.includes('--headed');
+const labelAt = args.indexOf('--label');
+const label = labelAt >= 0 ? args[labelAt + 1] ?? null : null;
+const client = { label, headless, channel: 'chrome', platform: process.platform };
 
 let browser;
 try {
-  browser = await chromium.launch({ channel: 'chrome', headless: true, timeout: 15000 });
+  browser = await chromium.launch({ channel: 'chrome', headless, timeout: 15000 });
   const page = await browser.newPage({ serviceWorkers: 'block' });
   const response = await page.goto(sites.source.start, {
     waitUntil: 'domcontentloaded', timeout: 20000,
   });
   const sameOrigin = new URL(page.url()).origin === sites.source.origin;
-  const status = response?.status() ?? null;
-  let result = 'login_page_unverified';
-  let supportId;
-  if (sameOrigin) {
-    const accountField = page.locator('#fieldAccount');
-    await accountField.waitFor({ timeout: 5000 }).catch(() => {});
-    if ((await page.title()).trim() === 'Request Rejected') {
-      result = 'portal_request_rejected';
-      supportId = (await page.locator('body').innerText()).match(/support ID is[:\s]+([\d-]+)/i)?.[1];
-    } else if (response?.ok() && await accountField.isVisible() &&
-        await page.locator('input[type="password"]:visible').first().isVisible()) {
-      result = 'login_form_reached';
-    }
-  }
-  console.log(JSON.stringify({ result, httpStatus: status, supportId }));
-  if (result !== 'login_form_reached') process.exitCode = 1;
+  const accountField = page.locator('#fieldAccount');
+  if (sameOrigin) await accountField.waitFor({ timeout: 5000 }).catch(() => {});
+  const outcome = classifyPortalStart({
+    title: await page.title(),
+    bodyText: sameOrigin ? await page.locator('body').innerText() : '',
+    sameOrigin,
+    ok: response?.ok() ?? false,
+    loginForm: sameOrigin && await accountField.isVisible() &&
+      await page.locator('input[type="password"]:visible').first().isVisible(),
+  });
+  console.log(JSON.stringify({ ...outcome, httpStatus: response?.status() ?? null,
+    checkedAt: new Date().toISOString(), client }));
+  if (outcome.result !== 'login_form_reached') process.exitCode = 1;
 } catch (error) {
-  console.log(JSON.stringify({ result: 'browser_or_navigation_failed', timeout: error.name === 'TimeoutError' }));
+  console.log(JSON.stringify({ result: 'browser_or_navigation_failed',
+    timeout: error.name === 'TimeoutError', client }));
   process.exitCode = 1;
 } finally {
   await browser?.close();

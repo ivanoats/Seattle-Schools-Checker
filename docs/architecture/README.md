@@ -10,6 +10,7 @@ supports multiple children and separate family accounts.
 - [Quality attribute assessment](quality.md)
 - [Cloudflare architecture and migration plan](cloudflare.md)
 - [Decision records](adr/README.md)
+- [Plan review and proposed resequencing](plan-review.md)
 
 The ADL is a lightweight JSON architecture model. It describes system
 boundaries, components, relationships, and active integrations. C4 diagrams

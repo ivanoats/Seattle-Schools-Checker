@@ -84,18 +84,10 @@ The probe visits the public sign-in URL and checks for the expected login
 form. It distinguishes the portal’s rejection page from a genuine form,
 even when both return HTTP 200. It uses no account credentials.
 
-## One-time live Source check on hosted Linux
-
-From the repository root on the Mac, run:
-
-```sh
-node scripts/browser-run/source-live.js
-```
-
-The command prepares a temporary West US 2 GitHub Codespace and checks the
-public sign-in form again before prompting. Enter the Source parent username
-and password when prompted. Only the password is hidden. The credentials
-travel over the Codespace SSH connection for one login attempt and are
-held in memory by the checker. The test verifies the configured child,
-compares the live results with a fresh Mac baseline when available, and
-deletes the Codespace after the attempt. Share only the final JSON status.
+Add `--label <name>` to name the runner in the output and `--headed` to
+show the browser. The result is `login_form_reached`,
+`portal_request_rejected` (firewall, with a support ID when shown),
+`portal_session_not_established` (the BIG-IP access-session page) or
+`login_page_unverified`. Use an ordinary browser only. A rejection is a
+final answer for that runner. See
+[ADR 0006](../../docs/architecture/adr/0006-source-access.md).

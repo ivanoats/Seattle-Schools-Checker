@@ -1,0 +1,47 @@
+name: Source sign-in probe
+
+# One request to the public sign-in page from a hosted Linux runner with
+# ordinary Chrome. No credentials. See docs/architecture/plan-review.md.
+on:
+  workflow_dispatch:
+  push:
+    branches: [docs/plan-review-source-access]
+    paths:
+      - .github/workflows/source-probe.yml
+      - scripts/browser-run/source-probe.js
+      - scripts/browser-run/portal-start.js
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - run: google-chrome --version
+      - name: Probe the public sign-in page
+        run: |
+          set -o pipefail
+          node scripts/browser-run/source-probe.js --label github-hosted-linux | tee probe.json
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo '### Source sign-in probe'
+            echo '```json'
+            cat probe.json 2>/dev/null || echo '{"result":"probe_did_not_run"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
