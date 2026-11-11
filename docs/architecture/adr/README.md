@@ -7,6 +7,7 @@
 | [0003 — Separate portal readers from execution and report policy](0003-portable-core.md) | Accepted for the local implementation |
 | [0004 — Pilot on Cloudflare with explicit family and child identity](0004-cloudflare-pilot.md) | Proposed |
 | [0005 — Preserve verified state and serve private reports](0005-state-and-reports.md) | Proposed |
+| [0006 — Read The Source with ordinary hosted Chrome](0006-source-access.md) | Proposed |
 
 Accepted records describe current scope or observed decisions. Proposed
 records are candidates for the migration and require their documented
