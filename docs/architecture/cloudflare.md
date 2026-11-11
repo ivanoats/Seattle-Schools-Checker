@@ -8,8 +8,9 @@ infrastructure without a guardian device running.
 The release requires both providers. Schoology supplies deadlines,
 overdue items, and submission evidence. The Source supplies grades,
 attendance, and official missing flags. Schoology works on Browser Run.
-The Source needs a hosted browser connection that passes the portal’s
-access checks before the first family release.
+The Source rejects Browser Run and accepts ordinary Chrome on hosted
+Linux, so it runs in a separate container. See
+[ADR 0006](adr/0006-source-access.md).
 
 ## Proposed C4 container view
 
@@ -24,7 +25,7 @@ C4Container
         ContainerQueue(jobs, "Check jobs", "Cloudflare Queues", "Opaque job identifiers")
         Container(runner, "Check runner", "Worker consumer", "Auth, identity checks, normalized observations and comparisons")
         Container(browser, "Browser Run", "Playwright", "Isolated Schoology browser contexts")
-        Container(sourceRunner, "Proposed Source runner", "Hosted Chrome", "Hosting and portal access pending validation")
+        Container(sourceRunner, "Source runner", "Stock Chrome in a Linux container", "Verified on hosted Linux. Platform choice pending")
         ContainerDb(secrets, "Portal credentials", "Credential store", "Encrypted family-scoped credentials and revocation")
         ContainerDb(state, "Run and school state", "D1", "Family membership, linked children, snapshots and report manifest")
         ContainerDb(reports, "Family PDFs", "Private R2", "Artifacts served after access checks")
@@ -37,7 +38,7 @@ C4Container
     Rel(runner, browser, "Creates and closes isolated contexts")
     Rel(browser, schoology, "Reads authenticated parent pages", "HTTPS")
     Rel(runner, sourceRunner, "Dispatches authorized Source checks")
-    Rel(sourceRunner, source, "Reads authenticated parent pages after compatibility is verified", "HTTPS")
+    Rel(sourceRunner, source, "Reads authenticated parent pages", "HTTPS")
     Rel(runner, state, "Commits verified observations and progress")
     Rel(control, reports, "Writes and serves authorized PDFs")
 ```
@@ -128,7 +129,7 @@ private cache policy.
 | Phase | Work | Exit criteria |
 | --- | --- | --- |
 | 1. Extract local core (implemented) | Configure child mappings locally and add a shared provider observation contract. Normalize coverage and extract comparisons, cutoffs and report modeling into portable JS. Keep the local CLI and scheduled PDF workflow. | Existing fixtures pass. Two synthetic children with overlapping names and assignments stay separate. Unavailable results preserve verified state. |
-| 2. Cloud compatibility | Keep the verified Schoology path. Test ordinary Chrome on a separate hosted Linux runner for Source. | Both providers accept hosted sign-in and match verified portal data. Schoology passed for one account. Source remains open. |
+| 2. Cloud compatibility | Keep the verified Schoology path. Test ordinary Chrome on a separate hosted Linux runner for Source. | Both providers accept hosted sign-in and match verified portal data. Schoology passed for one account on Browser Run. Source passed for one account on ordinary hosted Chrome. Cloudflare Containers and the Worker binding remain open. |
 | 3. Web app pilot | Build family sign-in, both provider connection flows, a child picker, a responsive dashboard, and scheduled checks and reports. | A guardian can set up, reconnect, switch children, and review reports from phone and desktop browsers. Both providers update with no guardian device running. |
 | 4. Invite more families | Add invite and membership controls, revocation and deletion, per-family workload limits, and a tested credential design. | Two synthetic families cannot read or overwrite each other’s records or sessions. Verify onboarding with a second consenting household before expanding. |
 
@@ -154,15 +155,21 @@ choose retention periods for reports and credentials, and test family
 account deletion. The browser dashboard and private report links are the
 planned delivery surfaces.
 
-### Next Source test
+### Source on hosted Chrome
 
 The [public sign-in probe](../../scripts/browser-run/README.md) reached
-the actual Source login form (HTTP 200) in Google Chrome 157 on a temporary
-Ubuntu 24.04 GitHub Codespace in West US 2. The probe used no credentials.
-This verifies reachability on one hosted network. Test an authorized
-sign-in on the intended runner next, then compare grades, attendance,
-and missing flags before adding it to the pilot. The hosting choice
-remains provisional.
+the actual Source login form (HTTP 200) with ordinary Chrome on a
+GitHub Codespace in West US 2 and on a GitHub-hosted Linux runner. The
+probe used no credentials.
 
-The [plan review](plan-review.md) proposes a probe matrix, a stopping
-rule and a sequence that keeps this test off the critical path.
+On November 11, 2026, the
+[one-time live check](../../scripts/browser-run/README.md) completed a
+fresh automated sign-in and a verified read from a Codespace three
+times. The compared run matched the Mac checker on roster and grades,
+missing flags, and attendance. Both readers had two of nine courses
+without a readable assignment table.
+
+This covers one guardian account, one day, and one hosted network. Next,
+run the probe and a verified read from the intended runner platform,
+starting with Cloudflare Containers. The
+[plan review](plan-review.md) lists the results and the revised sequence.

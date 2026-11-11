@@ -215,7 +215,7 @@
         [
           "source_hosted_runner",
           "source",
-          "Reads authenticated parent pages after compatibility is verified"
+          "Reads authenticated parent pages"
         ]
       ]
     }
@@ -224,7 +224,7 @@
     "source": {
       "status": "active",
       "cloudPilot": true,
-      "cloudCompatibility": "blocked_on_browser_run"
+      "cloudCompatibility": "rejected_by_browser_run_verified_on_hosted_chrome_for_one_guardian"
     },
     "schoology": {
       "status": "active",
@@ -352,7 +352,7 @@
     },
     "source_hosted_runner": {
       "kind": "container",
-      "technology": "Hosted Chrome, pending validation"
+      "technology": "Stock Chrome in a Linux container, platform pending"
     }
   },
   "schedule": {

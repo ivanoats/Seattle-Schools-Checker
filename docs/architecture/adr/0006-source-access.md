@@ -1,67 +1,67 @@
-# ADR 0006 — Collect Source data from the guardian's side until hosted access is permitted
+# ADR 0006 — Read The Source with ordinary hosted Chrome
 
 **Status** Proposed
 
-**Recorded** November 10, 2026
+**Recorded** November 10, 2026. Revised November 11, 2026.
 
 ## Context
 
 The Source sits behind an F5 BIG-IP. It returned a “Request Rejected”
 page with a support ID to Cloudflare Browser Run before any credentials
 were entered. Browser Run attaches identifying headers that cannot be
-removed, signs each request, and is always classified as a bot. Its
-traffic leaves from Cloudflare address ranges with no alternative egress.
-No Browser Run setting changes this outcome.
+removed, signs each request, and is always classified as a bot. No
+Browser Run setting changes this outcome.
 
-ADR 0004 makes both providers a release requirement. That ties the web
-app to the one dependency the project does not control.
+Ordinary headless Chrome on hosted Linux is accepted. On November 11 the
+public sign-in probe reached the login form from a GitHub-hosted runner
+and from GitHub Codespaces. Three Codespace runs then completed a fresh
+automated sign-in and a verified read. The third was compared with the
+Mac checker and matched on roster and grades, missing flags, and
+attendance. Both readers had two of nine courses without a readable
+assignment table.
+
+Checks must run with no guardian device switched on. Collection on a
+Mac, a home machine or a browser extension is out of scope.
 
 ## Decision
 
-Separate collection from reporting. The Worker accepts versioned
-observations through an authenticated ingest endpoint, whichever
-collector produced them. Reports show each provider's own verification
-time and coverage.
+Read The Source with stock Chrome and the existing Playwright reader in
+a hosted Linux container. Keep Schoology on Browser Run. The check
+runner dispatches Source jobs to the container and receives the same
+versioned observation the local checker emits.
 
-Collect Schoology on Browser Run. Collect The Source on the guardian's
-side, starting with the existing Mac checker. A hosted Source collector
-is added only when one of these holds:
+Prefer Cloudflare Containers so the system stays on one platform. Adopt
+it after the probe and a verified read pass from that network. Use a
+small Linux runner elsewhere if they do not.
 
-1. Seattle Public Schools confirms that scheduled guardian access from
-   a hosted service is acceptable, or allowlists the runner.
-2. An honestly identified, ordinary Chrome on a hosted runner reaches
-   the login form repeatedly, and the use stays within the operator's
-   own household.
+The browser identifies itself honestly. The project does not use
+stealth plugins, fingerprint or header spoofing, residential or rotating
+proxies, or CAPTCHA solving. If the portal starts refusing the hosted
+browser, Source data is shown as unavailable until a permitted route
+exists.
 
-The project does not use stealth plugins, fingerprint or header
-spoofing, residential or rotating proxies, or CAPTCHA solving to reach
-either portal. A rejection from an ordinary browser is a final answer
-for that hosting option.
-
-Hosted Source credentials for a second household require the first
-condition. Signing in to many guardian accounts from one hosted address
-resembles credential stuffing and can lock real parents out.
+Sign in once per scheduled check for each guardian account. Do not
+retry a rejected sign-in automatically.
 
 ## Alternatives and consequences
 
-Moving the Source runner to another cloud until one passes is fragile.
-The firewall policy can change without notice, and the approach turns
-into evasion as soon as an ordinary browser is refused. Routing a hosted
-browser through a home connection works for one household and still
-needs a device at home.
+Browser Run for both providers would be simpler and is refused by the
+portal. Guardian-side collection keeps Source passwords out of the cloud
+and needs a device that is on. PowerSchool email notifications would
+need no credentials. District pages do not mention them, and they would
+not carry assignment-level missing flags.
 
-Guardian-side collection keeps Source credentials out of the cloud and
-uses the network and browser the portal already accepts. Source data can
-go stale when the guardian's device is off. The dashboard must show that
-plainly. The availability target in the quality assessment applies per
-provider. A second household needs a collector it can install, such as a
-browser extension, before it can add The Source.
+The evidence covers one guardian account, one day, and Microsoft Azure
+addresses. The firewall policy can change without notice. The dashboard
+shows Source verification time and an unavailable state separately from
+Schoology. The availability target applies per provider.
 
-PowerSchool can email grade and attendance summaries to guardians where
-a district enables it. If The Source offers this, an Email Worker can
-ingest those messages with no credentials and no browser. District
-pages do not mention the feature. Check the signed-in portal.
+Hosting other households' Source credentials remains a separate
+decision. Many guardian sign-ins from one hosted address can resemble
+credential stuffing and lock parents out. Run the operator's own
+household for several weeks first, and settle credential storage,
+revocation and deletion as ADR 0004 requires.
 
 [Automatic request headers](https://developers.cloudflare.com/browser-run/reference/automatic-request-headers/) ·
 [Browser Run FAQ](https://developers.cloudflare.com/browser-run/faq/) ·
-[Email Workers](https://developers.cloudflare.com/email-routing/email-workers/).
+[Containers](https://developers.cloudflare.com/containers/).
