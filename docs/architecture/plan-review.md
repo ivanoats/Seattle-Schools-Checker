@@ -56,11 +56,12 @@ different days.
 | A | Mac, Chrome headed | Baseline | Login form |
 | B | Mac, Chrome headless | Headless mode | Login form (the daily checker) |
 | C | Browser Run over CDP | Cloudflare headers, bot identity, Cloudflare address | Request Rejected |
-| D | Hosted Linux VM, ordinary Chrome headless | Data-center address, Linux | Unknown |
+| D | Hosted Linux VM, ordinary Chrome headless | Data-center address, Linux | Login form, once (GitHub Codespace, West US 2, November 10) |
 | E | Cloudflare Containers, ordinary Chrome headless | Cloudflare address without Browser Run headers | Unknown |
 
 Row D against row C separates the Browser Run identity from a hosted
-address. Row E shows whether a Cloudflare-only deployment remains
+address. The first row D pass points at the Browser Run identity as the
+cause. It covers one network and the public page only. Row E shows whether a Cloudflare-only deployment remains
 possible. If D and E are both rejected, stop. Do not add stealth,
 proxies or header changes.
 

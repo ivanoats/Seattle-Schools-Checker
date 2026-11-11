@@ -91,3 +91,19 @@ show the browser. The result is `login_form_reached`,
 `login_page_unverified`. Use an ordinary browser only. A rejection is a
 final answer for that runner. See
 [ADR 0006](../../docs/architecture/adr/0006-source-access.md).
+
+## One-time live Source check on hosted Linux
+
+From the repository root on the Mac, run:
+
+```sh
+node scripts/browser-run/source-live.js
+```
+
+The command prepares a temporary West US 2 GitHub Codespace and checks the
+public sign-in form again before prompting. Enter the Source parent username
+and password when prompted. Only the password is hidden. The credentials
+travel over the Codespace SSH connection for one login attempt and are
+held in memory by the checker. The test verifies the configured child,
+compares the live results with a fresh Mac baseline when available, and
+deletes the Codespace after the attempt. Share only the final JSON status.

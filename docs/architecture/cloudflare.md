@@ -156,12 +156,13 @@ planned delivery surfaces.
 
 ### Next Source test
 
-Run the [public sign-in probe](../../scripts/browser-run/README.md) on a
-separate hosted Linux runner with ordinary Chrome. Check that the actual
-login form appears before entering any credentials. Use the existing
-Playwright reader for an authorized test only if that succeeds. Confirm
-repeatable sign-in and comparable grades, attendance, and missing flags
-before adding the runner to the pilot. The hosting choice is provisional.
+The [public sign-in probe](../../scripts/browser-run/README.md) reached
+the actual Source login form (HTTP 200) in Google Chrome 157 on a temporary
+Ubuntu 24.04 GitHub Codespace in West US 2. The probe used no credentials.
+This verifies reachability on one hosted network. Test an authorized
+sign-in on the intended runner next, then compare grades, attendance,
+and missing flags before adding it to the pilot. The hosting choice
+remains provisional.
 
 The [plan review](plan-review.md) proposes a probe matrix, a stopping
 rule and a sequence that keeps this test off the critical path.
