@@ -1,9 +1,15 @@
 # Cloudflare migration plan
 
-The first hosted release is a private pilot for one guardian account with
-multiple linked children. The design includes a family boundary from the
-start. A multi-family service requires a separate onboarding and credential
-isolation decision before opening registration.
+Build an invite-only web app that guardians can set up and use in a
+phone or desktop browser. Each family gets its own sign-in, linked
+children, and private reports. Scheduled checks run on hosted
+infrastructure without a guardian device running.
+
+The release requires both providers. Schoology supplies deadlines,
+overdue items, and submission evidence. The Source supplies grades,
+attendance, and official missing flags. Schoology works on Browser Run.
+The Source needs a hosted browser connection that passes the portal’s
+access checks before the first family release.
 
 ## Proposed C4 container view
 
@@ -11,13 +17,15 @@ isolation decision before opening registration.
 C4Container
     title Proposed Cloudflare school monitor
     Person(guardian, "Authorized guardian", "Manages linked children and views school reports")
-    System_Ext(portals, "Source and Schoology", "Parent portals")
+    System_Ext(schoology, "Schoology", "Parent portal")
+    System_Ext(source, "The Source", "Parent portal")
     System_Boundary(cloud, "Private school monitor") {
-        Container(control, "Control and reporting Worker", "Cloudflare Workers", "Cron dispatch, authorized settings and private report access")
+        Container(control, "Web app and reporting Worker", "Cloudflare Workers", "Family sign-in, Schoology connection, schedule and private reports")
         ContainerQueue(jobs, "Check jobs", "Cloudflare Queues", "Opaque job identifiers")
         Container(runner, "Check runner", "Worker consumer", "Auth, identity checks, normalized observations and comparisons")
-        Container(browser, "Browser Run", "Playwright", "Isolated portal browser contexts")
-        ContainerDb(secrets, "Pilot portal credentials", "Worker Secrets", "Scoped credentials for one family deployment")
+        Container(browser, "Browser Run", "Playwright", "Isolated Schoology browser contexts")
+        Container(sourceRunner, "Proposed Source runner", "Hosted Chrome", "Hosting and portal access pending validation")
+        ContainerDb(secrets, "Portal credentials", "Credential store", "Encrypted family-scoped credentials and revocation")
         ContainerDb(state, "Run and school state", "D1", "Family membership, linked children, snapshots and report manifest")
         ContainerDb(reports, "Family PDFs", "Private R2", "Artifacts served after access checks")
     }
@@ -27,7 +35,9 @@ C4Container
     Rel(runner, jobs, "Consumes and acknowledges jobs")
     Rel(runner, secrets, "Resolves credentials for the job")
     Rel(runner, browser, "Creates and closes isolated contexts")
-    Rel(browser, portals, "Reads authenticated pages", "HTTPS")
+    Rel(browser, schoology, "Reads authenticated parent pages", "HTTPS")
+    Rel(runner, sourceRunner, "Dispatches authorized Source checks")
+    Rel(sourceRunner, source, "Reads authenticated parent pages after compatibility is verified", "HTTPS")
     Rel(runner, state, "Commits verified observations and progress")
     Rel(control, reports, "Writes and serves authorized PDFs")
 ```
@@ -35,8 +45,9 @@ C4Container
 Browser Run offers a Playwright integration. Validate the exact route
 interception, redirect behavior, timezone, popup expansion and evaluation
 methods the checker uses. Its host guardrails supplement the credential
-request checks in `src/auth.js`. Portal acceptance of cloud-origin traffic
-and account entitlements remain unverified.
+request checks in `src/auth.js`. Schoology worked for one guardian account.
+Validate the Worker binding and browser-based onboarding before expanding the
+pilot.
 [Playwright](https://developers.cloudflare.com/browser-run/playwright/) ·
 [Browser guardrails](https://developers.cloudflare.com/browser-run/features/guardrails/) ·
 [Browser limits](https://developers.cloudflare.com/browser-run/limits/).
@@ -73,14 +84,14 @@ server-side. Test isolation even when contexts are distinct. Verify each
 child on every check and prevent a partial or mismatched snapshot from
 replacing another child's data.
 
-For the private pilot, enter credentials directly as deployment-scoped
-Worker Secrets. Use short-lived browser contexts and reauthenticate as
-needed. Confirm portal rate limits and prompts before using real accounts
-on a schedule. Multi-family onboarding needs a separate credential design,
-such as a per-family deployment or an encrypted credential store with
-independent key management and tenant checks. A secret reference in D1
-identifies a credential without containing it.
-[Worker Secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
+Connect each portal from the web app with explicit guardian consent. Resolve
+each credential through its family-scoped reference and authorize the family
+before each use. Keep credential encryption keys separate from the database.
+Use short-lived browser contexts and reauthenticate as needed. Verify how
+login challenges are surfaced so a guardian can reconnect from a phone or computer.
+Decide and test credential storage, revocation, and deletion before inviting
+a second household. Validate portal rate limits and login flows during the
+pilot.
 
 ## Scheduling and recovery
 
@@ -117,14 +128,34 @@ private cache policy.
 | Phase | Work | Exit criteria |
 | --- | --- | --- |
 | 1. Extract local core (implemented) | Configure child mappings locally and add a shared provider observation contract. Normalize coverage and extract comparisons, cutoffs and report modeling into portable JS. Keep the local CLI and scheduled PDF workflow. | Existing fixtures pass. Two synthetic children with overlapping names and assignments stay separate. Unavailable results preserve verified state. |
-| 2. Cloud compatibility spike | Run synthetic portal fixtures on Browser Run. Verify HTTPS credential destinations, redirect behavior, popup reads, sanitized diagnostics and context cleanup. Then test one authorized guardian read with real credentials entered locally into the cloud secret interface. | Both portals read successfully from Cloudflare. Compare semantic outputs with a local run against the same term. Confirm no secrets or student data enter logs or recordings. Record runtime and cost. |
-| 3. Private multi-child pilot | Add D1 mappings and durable run state. Add cron, bounded queue retries, private reports and authenticated access. Run alongside the local checker before switching. | Verify two linked children or an authorized live child plus synthetic coverage until a second is available. Exercise stale sessions, duplicate delivery, failed provider checks, DST, Friday cutoffs and rollback. Check same-family and cross-family authorization with synthetic tenants. |
-| 4. Hosted cutover | Confirm where reports are read, retention and deletion terms, budget and access grants. Enable cloud reporting after checking parity. | Guardian can review progress and Friday reports with the Mac offline. Cloud errors surface clearly. Resume local reporting if cutover fails. |
-| 5. Additional families | Decide credential isolation and onboarding. Add explicit consent, revocation, tenant deletion, operational support and workload limits. | An isolated tenant can onboard and delete its data. Cross-tenant authorization and browser state tests pass. |
+| 2. Cloud compatibility | Keep the verified Schoology path. Test ordinary Chrome on a separate hosted Linux runner for Source. | Both providers accept hosted sign-in and match verified portal data. Schoology passed for one account. Source remains open. |
+| 3. Web app pilot | Build family sign-in, both provider connection flows, a child picker, a responsive dashboard, and scheduled checks and reports. | A guardian can set up, reconnect, switch children, and review reports from phone and desktop browsers. Both providers update with no guardian device running. |
+| 4. Invite more families | Add invite and membership controls, revocation and deletion, per-family workload limits, and a tested credential design. | Two synthetic families cannot read or overwrite each other’s records or sessions. Verify onboarding with a second consenting household before expanding. |
 
-The pilot needs an account entitlement and budget check, a real portal
-compatibility result, a guardian access decision and a retention period
-before deployment. The private report view is the proposed cloud delivery
-surface. Delivering into the existing Codex chat is a separate integration
-to validate. Account configuration, cloud secrets and deployments are
-outside this documentation phase.
+The [synthetic Browser Run check](../../scripts/browser-run/README.md)
+passed all eight portal scenarios and the outbound request check on
+November 10, 2026. The run took 54 seconds end to end. It used a local
+Playwright controller with Cloudflare-hosted Chromium over CDP. The
+Worker binding and scheduled operation still need verification. Schoology
+passed both manual sign-in and a fresh automated login from Browser Run.
+The automated login returned HTTP 302 and the read matched the Mac checker
+across overdue work, upcoming work, events, and recently completed items.
+The same public Source URL displayed the login form in Mac Chrome and a rejection page with a support ID in Browser
+Run, before credentials were entered. Both responses used HTTP 200. The
+cloud response lacked Cloudflare's guardrail marker. The evidence points
+to filtering on the portal side, with the exact rule still unconfirmed.
+
+Before inviting families, verify the Cloudflare account limits and cost,
+choose retention periods for reports and credentials, and test family
+account deletion. The browser dashboard and private report links are the
+planned delivery surfaces.
+
+### Next Source test
+
+The [public sign-in probe](../../scripts/browser-run/README.md) reached
+the actual Source login form (HTTP 200) in Google Chrome 157 on a temporary
+Ubuntu 24.04 GitHub Codespace in West US 2. The probe used no credentials.
+This verifies reachability on one hosted network. Test an authorized
+sign-in on the intended runner next, then compare grades, attendance,
+and missing flags before adding it to the pilot. The hosting choice
+remains provisional.

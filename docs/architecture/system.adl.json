@@ -154,16 +154,18 @@
         "queue",
         "cloud_runner",
         "browser_run",
-        "worker_secrets",
+        "family_credentials",
         "d1",
         "private_r2",
-        "portals"
+        "schoology",
+        "source",
+        "source_hosted_runner"
       ],
       "relationships": [
         [
           "guardian",
           "cloud_control",
-          "Authenticates and reads authorized reports"
+          "Signs in from a phone or computer, connects portals, and reads private reports"
         ],
         [
           "cloud_control",
@@ -182,8 +184,8 @@
         ],
         [
           "cloud_runner",
-          "worker_secrets",
-          "Reads pilot credentials"
+          "family_credentials",
+          "Resolves credentials scoped to the authorized family"
         ],
         [
           "cloud_runner",
@@ -192,7 +194,7 @@
         ],
         [
           "browser_run",
-          "portals",
+          "schoology",
           "Reads authenticated school pages"
         ],
         [
@@ -204,6 +206,16 @@
           "cloud_control",
           "private_r2",
           "Publishes and serves private PDFs"
+        ],
+        [
+          "cloud_runner",
+          "source_hosted_runner",
+          "Dispatches authorized Source checks"
+        ],
+        [
+          "source_hosted_runner",
+          "source",
+          "Reads authenticated parent pages after compatibility is verified"
         ]
       ]
     }
@@ -211,11 +223,13 @@
   "integrations": {
     "source": {
       "status": "active",
-      "cloudPilot": true
+      "cloudPilot": true,
+      "cloudCompatibility": "blocked_on_browser_run"
     },
     "schoology": {
       "status": "active",
-      "cloudPilot": true
+      "cloudPilot": true,
+      "cloudCompatibility": "verified_in_browser_run_for_one_guardian"
     },
     "sugarmate": {
       "status": "shelved",
@@ -324,10 +338,6 @@
       "kind": "container",
       "technology": "Cloudflare Browser Run"
     },
-    "worker_secrets": {
-      "kind": "store",
-      "technology": "Worker Secrets"
-    },
     "d1": {
       "kind": "store",
       "technology": "Cloudflare D1"
@@ -335,6 +345,14 @@
     "private_r2": {
       "kind": "store",
       "technology": "Private Cloudflare R2 bucket"
+    },
+    "family_credentials": {
+      "kind": "store",
+      "technology": "Encrypted family-scoped credential store"
+    },
+    "source_hosted_runner": {
+      "kind": "container",
+      "technology": "Hosted Chrome, pending validation"
     }
   },
   "schedule": {
