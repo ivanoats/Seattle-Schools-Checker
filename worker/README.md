@@ -25,7 +25,8 @@ This builds the Worker without uploading it.
 ## Deploy
 
 1. Create the database and apply the schema. Use the database ID that
-   `create` prints.
+   `create` prints, and set the same ID on the `DB` binding in
+   `cloudflare.config.ts`.
 
    ```sh
    npx --no-install cf d1 create --name seattle-schools-checker

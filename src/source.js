@@ -51,7 +51,7 @@ export async function readSource(page, child) {
     } catch {
       c.missing = null; c.assignmentStatus = 'published_assignments_unavailable'; delete c.detail; continue;
     }
-    const rows = await page.locator('tr[id^="assignmentsection_"]').evaluateAll(rows => rows.map(row => ({
+    const rows = await page.locator('tr[id^="assignmentsection_"]').evaluateAll(found => found.map(row => ({
       id: row.id, due: row.cells[0].innerText, assignment: row.cells[2].innerText,
       score: row.querySelector('.score')?.innerText, excluded: !!row.querySelector('.tt-excluded'),
       missing: !!row.querySelector('.tt-missing'),

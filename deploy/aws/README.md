@@ -12,12 +12,15 @@ The instance has no inbound rules and nothing calls into it.
 | `install.sh` | Installs Node.js, Chrome, the AWS CLI and this repository on the instance. |
 | `source-runner.service` | Runs the check once at boot, then powers off. |
 | `run-once.sh` | Reads the settings from Parameter Store and starts the runner. |
+| `set-source-credentials.sh` | Prompts for the Source username and password and stores them in Parameter Store. |
 
 ## Steps
 
 1. Deploy the Worker first and note its URL and ingest token.
 2. Store the settings as `SecureString` parameters in `us-west-2`.
    Enter the values yourself. Keep them out of shell history and chat.
+   `sh deploy/aws/set-source-credentials.sh` prompts for the username
+   and password and stores those two.
 
    | Parameter | Value |
    | --- | --- |
@@ -27,7 +30,9 @@ The instance has no inbound rules and nothing calls into it.
    | `/seattle-source-checker/ingest-url` | `https://<worker host>/v1/ingest/source` |
    | `/seattle-source-checker/ingest-token` | The Worker's `INGEST_TOKEN`. |
 
-3. Create the stack and attach the instance profile it outputs.
+3. Create the stack and attach the instance profile it outputs. The
+   stack creates two IAM roles, so the identity that deploys it needs
+   permission to create roles and instance profiles.
 
    ```sh
    aws cloudformation deploy --region us-west-2 --stack-name source-runner \
