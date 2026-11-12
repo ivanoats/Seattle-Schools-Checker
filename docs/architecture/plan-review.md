@@ -34,7 +34,7 @@ observed results. The exact firewall rule is unconfirmed.
 | B | Browser Run over CDP | Request Rejected | Not attempted |
 | C | GitHub-hosted Linux runner, Chrome 156 | Login form, November 11 | Not attempted |
 | D | GitHub Codespace, West US 2, Chrome 157 | Login form, November 10 and 11 | Three fresh automated sign-ins on November 11. One compared with the Mac: roster and grades, missing flags, and attendance matched. |
-| E | Cloudflare Containers, ordinary Chrome | Request Rejected (HTTP 200), November 11 at 12:32 p.m. Pacific. Support ID `10160004216154572881`. [Probe](../../scripts/source-container/README.md) | Not attempted |
+| E | Cloudflare Containers, ordinary Chrome | Request Rejected (HTTP 200), November 11 at 12:32 p.m. Pacific. Support ID `10160004216154572881`. [Probe](https://github.com/ivanoats/Seattle-Schools-Checker/tree/archive/source-container-probe/scripts/source-container) | Not attempted |
 | F | AWS EC2 Oregon, Ubuntu, Chrome 157 | Login form, November 11 at 12:53 p.m. Pacific | Fresh automated login and verified grades and attendance read. The 1:34 p.m. coverage check matched the 1:19 p.m. Mac check on all nine rows. |
 
 Seven rows had readable assignment details, including Advisory. School
@@ -61,7 +61,7 @@ The second is the firewall.
 | 7 | Queues with hand-built leases, fencing and retries are a large surface for a one-family pilot. | Evaluate Workflows for the per-check pipeline and a Durable Object per guardian account to serialize child switching. Keep the D1 and R2 design. |
 | 8 | Schoology passed for one guardian through a local CDP controller. The Worker binding is unverified. | Verify the binding and a scheduled run. |
 | 9 | The availability target treats providers alike. | Set targets per provider. Show an unavailable or stale provider as a first-class dashboard state. |
-| 10 | The AWS compatibility check used a Mac terminal for credential entry. | Keep it as a one-time check. The scheduled runner needs its own credential path and its own smoke test. |
+| 10 | The AWS compatibility check used a Mac terminal for credential entry. | Keep it as a one-time check. The scheduled runner reads its settings from AWS Parameter Store and needs its own smoke test. |
 
 ## Revised sequence
 
@@ -69,14 +69,14 @@ The second is the firewall.
 | --- | --- | --- |
 | 1. Extract local core | Implemented. | Met. |
 | 2. Cloud compatibility | Schoology on Browser Run. Source on ordinary hosted Chrome. | Met for one guardian account on AWS Oregon and GitHub-hosted Linux. Cloudflare Containers failed the public probe. The Browser Run Worker binding remains open for Schoology. |
-| 2a. Source runner | Validate stock Chrome and the reader on a separate Linux host. | AWS selected for the single-household pilot. Verify the deployed Worker-to-EC2 path and repeat live reads on separate days. |
+| 2a. Source runner | Validate stock Chrome and the reader on a separate Linux host. | AWS selected for the single-household pilot. The runner pushes results to the Worker. Deploy both, verify one scheduled run end to end, and repeat live reads on separate days. |
 | 2b. Own the state | Add the D1 schema, report manifest and scheduled checks for both providers. | A week of weekday runs with Codex chat state unused. A Friday PDF regenerates from a recorded snapshot. |
 | 3. Web app pilot | Family sign-in, provider connection and reconnect flows, child picker, dashboard. | Both providers update with no guardian device running. Each shows its own verification time. |
 | 4. Second household | Invites, revocation, deletion, per-family limits and the credential design. | Two synthetic families stay isolated. A second consenting household completes setup after several weeks of stable single-household runs. |
 
 ## Open questions
 
-- Will the deployed Worker-to-EC2 path sustain verified reads across multiple days?
+- Will the scheduled EC2 runner sustain verified reads across multiple days?
 - Where do portal credentials live for scheduled runs, and how are they revoked?
 - How often does the portal's firewall policy change in practice?
 - What retention applies to observations and PDFs once state is hosted?

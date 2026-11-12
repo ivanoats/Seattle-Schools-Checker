@@ -13,3 +13,19 @@ export function classifyPortalStart({ title = '', bodyText = '', sameOrigin, ok,
   }
   return { result: ok && loginForm ? 'login_form_reached' : 'login_page_unverified' };
 }
+
+// Reads what the classifier needs from a page that has just loaded the
+// portal's public sign-in URL.
+export async function inspectPortalStart(page, response, origin) {
+  const sameOrigin = new URL(page.url()).origin === origin;
+  const accountField = page.locator('#fieldAccount');
+  if (sameOrigin) await accountField.waitFor({ timeout: 5000 }).catch(() => null);
+  return classifyPortalStart({
+    title: await page.title(),
+    bodyText: sameOrigin ? await page.locator('body').innerText() : '',
+    sameOrigin,
+    ok: response?.ok() ?? false,
+    loginForm: sameOrigin && await accountField.isVisible() &&
+      await page.locator('input[type="password"]:visible').first().isVisible(),
+  });
+}

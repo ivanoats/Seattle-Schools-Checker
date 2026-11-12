@@ -26,7 +26,7 @@ C4Container
         ContainerQueue(jobs, "Check jobs", "Cloudflare Queues", "Opaque job identifiers")
         Container(runner, "Check runner", "Worker consumer", "Auth, identity checks, normalized observations and comparisons")
         Container(browser, "Browser Run", "Playwright", "Isolated Schoology browser contexts")
-        Container(sourceRunner, "Source runner", "AWS EC2 Oregon, stock Chrome", "Reads Source and returns a versioned observation")
+        Container(sourceRunner, "Source runner", "AWS EC2 Oregon, stock Chrome", "Starts on a schedule, reads Source and posts a versioned observation")
         ContainerDb(secrets, "Portal credentials", "Credential store", "Encrypted family-scoped credentials and revocation")
         ContainerDb(state, "Run and school state", "D1", "Family membership, linked children, snapshots and report manifest")
         ContainerDb(reports, "Family PDFs", "Private R2", "Artifacts served after access checks")
@@ -38,7 +38,7 @@ C4Container
     Rel(runner, secrets, "Resolves credentials for the job")
     Rel(runner, browser, "Creates and closes isolated contexts")
     Rel(browser, schoology, "Reads authenticated parent pages", "HTTPS")
-    Rel(runner, sourceRunner, "Dispatches authorized Source checks", "HTTPS via Cloudflare Access and Tunnel")
+    Rel(sourceRunner, control, "Posts Source results for configured children", "HTTPS with a shared token")
     Rel(sourceRunner, source, "Reads authenticated parent pages", "HTTPS")
     Rel(runner, state, "Commits verified observations and progress")
     Rel(control, reports, "Writes and serves authorized PDFs")
@@ -178,8 +178,10 @@ coverage on all nine rows. Seven classes had readable detail. School
 Counselor HS and Program Support had no published grade link on either
 runner. The AWS observation must keep those gaps unknown.
 
-The [runner and Worker client](../../scripts/source-runner/README.md)
-are implemented and tested together against a local fixture. The EC2
-service, Cloudflare Tunnel and Access, and scheduled Worker deployment
-remain to be verified live. See the [plan review](plan-review.md) for
-the comparison limits.
+The [runner](../../scripts/source-runner/README.md) pushes its results
+to the [Worker](../../worker/README.md), which stores each check as its
+own row in D1. The two are tested together against the database schema.
+The [AWS deployment](../../deploy/aws/README.md) starts the instance on
+a schedule and powers it off after the check. The deployed Worker, the
+instance service and the schedule remain to be verified live. See the
+[plan review](plan-review.md) for the comparison limits.

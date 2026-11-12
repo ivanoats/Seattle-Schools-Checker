@@ -208,9 +208,9 @@
           "Publishes and serves private PDFs"
         ],
         [
-          "cloud_runner",
           "source_hosted_runner",
-          "Dispatches authorized Source checks"
+          "cloud_control",
+          "Posts Source results for configured children"
         ],
         [
           "source_hosted_runner",

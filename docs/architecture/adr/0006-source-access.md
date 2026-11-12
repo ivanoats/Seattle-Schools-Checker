@@ -27,8 +27,9 @@ Mac, a home machine or a browser extension is out of scope.
 
 Use AWS EC2 in Oregon (`us-west-2`) for The Source, with stock Chrome
 and the existing Playwright reader. Keep Schoology on Cloudflare Browser Run.
-The [AWS runner and Worker client](../../../scripts/source-runner/README.md)
-exchange the same versioned observation the local checker emits.
+The [AWS runner](../../../scripts/source-runner/README.md) posts the same
+versioned observation the local checker emits to the
+[Worker](../../../worker/README.md).
 
 On November 11, Ubuntu EC2 with Chrome 157 reached the public login form,
 completed fresh automated sign-in, verified the selected child, and read
@@ -37,11 +38,15 @@ rows. Seven had readable detail and two support rows exposed no published
 grade link. This compares coverage on EC2. The earlier Codespace test also
 compared record values.
 
-The AWS service listens on loopback. The planned Cloudflare Tunnel and
-Access policy will carry authorized Worker jobs to it without inbound
-EC2 rules. The Worker sends an opaque child ID and service credentials.
-The AWS process resolves the child mapping and Source credentials locally.
-The deployed service and scheduled dispatch still need an end-to-end check.
+The instance pushes. A schedule starts it on weekday afternoons. It
+signs in once, reads each configured child, posts the results to the
+Worker over HTTPS with a shared token, and powers off. Nothing calls
+into the instance, so it needs no inbound rule, tunnel or Access policy.
+It keeps one Elastic IP so the portal sees a stable address. The child
+mapping and Source credentials stay in AWS Parameter Store. The Worker
+holds neither. An on-demand refresh from the dashboard is given up for
+the pilot. The deployed Worker, instance service and schedule still need
+an end-to-end check.
 
 The browser identifies itself honestly. The project does not use
 stealth plugins, fingerprint or header spoofing, residential or rotating
@@ -50,7 +55,9 @@ browser, Source data is shown as unavailable until a permitted route
 exists.
 
 Sign in once per scheduled check for each guardian account. Do not
-retry a rejected sign-in automatically.
+retry a rejected sign-in automatically. The runner enforces a minimum
+interval between sign-ins and holds itself after repeated sign-in
+failures until the stored credentials change.
 
 ## Alternatives and consequences
 
