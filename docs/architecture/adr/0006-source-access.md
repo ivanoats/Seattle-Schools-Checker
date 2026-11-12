@@ -1,6 +1,6 @@
 # ADR 0006 — Read The Source with ordinary hosted Chrome
 
-**Status** Proposed
+**Status** Accepted for the single-household pilot
 
 **Recorded** November 10, 2026. Revised November 11, 2026.
 
@@ -25,14 +25,23 @@ Mac, a home machine or a browser extension is out of scope.
 
 ## Decision
 
-Read The Source with stock Chrome and the existing Playwright reader in
-a hosted Linux container. Keep Schoology on Browser Run. The check
-runner dispatches Source jobs to the container and receives the same
-versioned observation the local checker emits.
+Use AWS EC2 in Oregon (`us-west-2`) for The Source, with stock Chrome
+and the existing Playwright reader. Keep Schoology on Cloudflare Browser Run.
+The [AWS runner and Worker client](../../../scripts/source-runner/README.md)
+exchange the same versioned observation the local checker emits.
 
-Prefer Cloudflare Containers so the system stays on one platform. Adopt
-it after the probe and a verified read pass from that network. Use a
-small Linux runner elsewhere if they do not.
+On November 11, Ubuntu EC2 with Chrome 157 reached the public login form,
+completed fresh automated sign-in, verified the selected child, and read
+grades and attendance. Assignment coverage matched the Mac on all nine
+rows. Seven had readable detail and two support rows exposed no published
+grade link. This compares coverage on EC2. The earlier Codespace test also
+compared record values.
+
+The AWS service listens on loopback. The planned Cloudflare Tunnel and
+Access policy will carry authorized Worker jobs to it without inbound
+EC2 rules. The Worker sends an opaque child ID and service credentials.
+The AWS process resolves the child mapping and Source credentials locally.
+The deployed service and scheduled dispatch still need an end-to-end check.
 
 The browser identifies itself honestly. The project does not use
 stealth plugins, fingerprint or header spoofing, residential or rotating
@@ -51,7 +60,7 @@ and needs a device that is on. PowerSchool email notifications would
 need no credentials. District pages do not mention them, and they would
 not carry assignment-level missing flags.
 
-The evidence covers one guardian account, one day, and Microsoft Azure
+The evidence covers one guardian account, one day, and the tested AWS and Microsoft Azure
 addresses. The firewall policy can change without notice. The dashboard
 shows Source verification time and an unavailable state separately from
 Schoology. The availability target applies per provider.
