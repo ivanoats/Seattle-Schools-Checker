@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Starts the existing Source runner instance on weekday afternoons and lets
+  it read its own settings. The instance posts its results and powers off.
+
+Parameters:
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: The existing EC2 instance that runs the Source check.
+  ParameterPrefix:
+    Type: String
+    Default: /seattle-source-checker
+    AllowedPattern: '^/[a-z0-9-]+$'
+    Description: Parameter Store path that holds the runner settings.
+  StartSchedule:
+    Type: String
+    Default: cron(55 16 ? * MON-FRI *)
+    Description: When to start the instance, in the schedule time zone.
+  StopSchedule:
+    Type: String
+    Default: cron(25 17 ? * MON-FRI *)
+    Description: A safety stop in case the instance did not power itself off.
+  ScheduleTimezone:
+    Type: String
+    Default: America/Los_Angeles
+
+Resources:
+  RunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Lets an operator open a shell through Session Manager with no inbound rule.
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-runner-settings
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterPrefix}/*
+
+  RunnerProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref RunnerRole]
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref AWS::AccountId }
+      Policies:
+        - PolicyName: start-and-stop-the-runner
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ec2:StartInstances, ec2:StopInstances]
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}
+
+  StartRunner:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Description: Start the Source runner before the weekday check.
+      ScheduleExpression: !Ref StartSchedule
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      FlexibleTimeWindow: { Mode: 'OFF' }
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:startInstances
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub '{"InstanceIds":["${InstanceId}"]}'
+        RetryPolicy: { MaximumRetryAttempts: 2 }
+
+  StopRunner:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Description: Stop the Source runner if it is still up after the check.
+      ScheduleExpression: !Ref StopSchedule
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      FlexibleTimeWindow: { Mode: 'OFF' }
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub '{"InstanceIds":["${InstanceId}"]}'
+        RetryPolicy: { MaximumRetryAttempts: 2 }
+
+Outputs:
+  InstanceProfileName:
+    Description: Attach this profile to the instance.
+    Value: !Ref RunnerProfile

@@ -10,7 +10,7 @@ export async function readSource(page, child) {
     if (new URL(page.url()).origin !== sites.source.origin) throw new CheckError('source_child_tab_unverified');
     await page.getByRole('heading', { name: `${label}: ${studentHeading}`, exact: true }).waitFor();
   };
-  await page.goto(sites.source.origin + '/guardian/home.html');
+  await page.goto(sites.source.origin + '/guardian/home.html', { waitUntil: 'domcontentloaded' });
   const tabs = await page.getByRole('link', { name: tabLabel, exact: true }).all();
   const matches = [];
   for (const tab of tabs) {
@@ -21,6 +21,7 @@ export async function readSource(page, child) {
   if (matches.length !== 1) throw new CheckError('source_child_tab_unverified');
   await matches[0].click();
   await verifyHeading('Grades');
+  await page.locator('#tblgrades tr[id]').first().waitFor({ state: 'attached' });
   const courses = await page.locator('#tblgrades tr[id]').evaluateAll(rows => rows.map(r => {
     const c = Array.from(r.cells);
     return { course: c[11].innerText.split('\n')[0].trim(), period: c[0].innerText.trim(),
@@ -32,7 +33,7 @@ export async function readSource(page, child) {
   const tardyURL = await page.locator('#tblgrades a[href*="codes=*tar"]').last().getAttribute('href');
   async function attendance(href) {
     if (!href) throw new CheckError('source_layout_changed');
-    await page.goto(new URL(href, page.url()).href);
+    await page.goto(new URL(href, page.url()).href, { waitUntil: 'domcontentloaded' });
     const heading = page.getByRole('heading', { name: new RegExp(`: ${studentHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) });
     await heading.waitFor();
     return parseAttendance(await page.locator('#content-main').innerText());
@@ -42,7 +43,7 @@ export async function readSource(page, child) {
   const assignmentRows = Array(courses.length).fill(null);
   for (const [index, c] of courses.entries()) {
     if (!c.detail) { c.missing = null; c.assignmentStatus = 'published_grade_unavailable'; delete c.detail; continue; }
-    await page.goto(new URL(c.detail, sites.source.origin + '/guardian/').href);
+    await page.goto(new URL(c.detail, sites.source.origin + '/guardian/').href, { waitUntil: 'domcontentloaded' });
     await verifyHeading('Class Score Detail');
     // Wait for Angular's published-assignment table or explicit empty result.
     try {
@@ -50,7 +51,7 @@ export async function readSource(page, child) {
     } catch {
       c.missing = null; c.assignmentStatus = 'published_assignments_unavailable'; delete c.detail; continue;
     }
-    const rows = await page.locator('tr[id^="assignmentsection_"]').evaluateAll(rows => rows.map(row => ({
+    const rows = await page.locator('tr[id^="assignmentsection_"]').evaluateAll(found => found.map(row => ({
       id: row.id, due: row.cells[0].innerText, assignment: row.cells[2].innerText,
       score: row.querySelector('.score')?.innerText, excluded: !!row.querySelector('.tt-excluded'),
       missing: !!row.querySelector('.tt-missing'),

@@ -208,9 +208,9 @@
           "Publishes and serves private PDFs"
         ],
         [
-          "cloud_runner",
           "source_hosted_runner",
-          "Dispatches authorized Source checks"
+          "cloud_control",
+          "Posts Source results for configured children"
         ],
         [
           "source_hosted_runner",
@@ -224,7 +224,7 @@
     "source": {
       "status": "active",
       "cloudPilot": true,
-      "cloudCompatibility": "rejected_by_browser_run_verified_on_hosted_chrome_for_one_guardian"
+      "cloudCompatibility": "aws_oregon_ec2_verified_for_one_guardian_cloudflare_browser_routes_rejected"
     },
     "schoology": {
       "status": "active",
@@ -352,7 +352,7 @@
     },
     "source_hosted_runner": {
       "kind": "container",
-      "technology": "Stock Chrome in a Linux container, platform pending"
+      "technology": "Stock Chrome on AWS EC2 Oregon"
     }
   },
   "schedule": {

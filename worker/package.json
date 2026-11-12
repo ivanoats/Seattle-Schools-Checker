@@ -1,0 +1,13 @@
+{
+  "name": "seattle-schools-checker-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "cf deploy --dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-beta.v.15",
+    "cf": "1.0.0-beta.30",
+    "vite": "8.3.8"
+  }
+}

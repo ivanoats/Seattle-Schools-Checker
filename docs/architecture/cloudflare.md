@@ -8,8 +8,9 @@ infrastructure without a guardian device running.
 The release requires both providers. Schoology supplies deadlines,
 overdue items, and submission evidence. The Source supplies grades,
 attendance, and official missing flags. Schoology works on Browser Run.
-The Source rejects Browser Run and accepts ordinary Chrome on hosted
-Linux, so it runs in a separate container. See
+The Source rejected Browser Run and stock Chrome on Cloudflare Containers.
+AWS EC2 in Oregon is the selected Source pilot runner after a successful
+sign-in and a course-by-course coverage comparison with the Mac. See
 [ADR 0006](adr/0006-source-access.md).
 
 ## Proposed C4 container view
@@ -25,7 +26,7 @@ C4Container
         ContainerQueue(jobs, "Check jobs", "Cloudflare Queues", "Opaque job identifiers")
         Container(runner, "Check runner", "Worker consumer", "Auth, identity checks, normalized observations and comparisons")
         Container(browser, "Browser Run", "Playwright", "Isolated Schoology browser contexts")
-        Container(sourceRunner, "Source runner", "Stock Chrome in a Linux container", "Verified on hosted Linux. Platform choice pending")
+        Container(sourceRunner, "Source runner", "AWS EC2 Oregon, stock Chrome", "Starts on a schedule, reads Source and posts a versioned observation")
         ContainerDb(secrets, "Portal credentials", "Credential store", "Encrypted family-scoped credentials and revocation")
         ContainerDb(state, "Run and school state", "D1", "Family membership, linked children, snapshots and report manifest")
         ContainerDb(reports, "Family PDFs", "Private R2", "Artifacts served after access checks")
@@ -37,7 +38,7 @@ C4Container
     Rel(runner, secrets, "Resolves credentials for the job")
     Rel(runner, browser, "Creates and closes isolated contexts")
     Rel(browser, schoology, "Reads authenticated parent pages", "HTTPS")
-    Rel(runner, sourceRunner, "Dispatches authorized Source checks")
+    Rel(sourceRunner, control, "Posts Source results for configured children", "HTTPS with a shared token")
     Rel(sourceRunner, source, "Reads authenticated parent pages", "HTTPS")
     Rel(runner, state, "Commits verified observations and progress")
     Rel(control, reports, "Writes and serves authorized PDFs")
@@ -129,7 +130,7 @@ private cache policy.
 | Phase | Work | Exit criteria |
 | --- | --- | --- |
 | 1. Extract local core (implemented) | Configure child mappings locally and add a shared provider observation contract. Normalize coverage and extract comparisons, cutoffs and report modeling into portable JS. Keep the local CLI and scheduled PDF workflow. | Existing fixtures pass. Two synthetic children with overlapping names and assignments stay separate. Unavailable results preserve verified state. |
-| 2. Cloud compatibility | Keep the verified Schoology path. Test ordinary Chrome on a separate hosted Linux runner for Source. | Both providers accept hosted sign-in and match verified portal data. Schoology passed for one account on Browser Run. Source passed for one account on ordinary hosted Chrome. Cloudflare Containers and the Worker binding remain open. |
+| 2. Cloud compatibility | Keep the verified Schoology path. Test ordinary Chrome on a separate hosted Linux runner for Source. | Both providers accept hosted sign-in and match verified portal data. Schoology passed for one account on Browser Run. Source passed for one account on ordinary hosted Chrome. Cloudflare Containers failed the public Source probe. The Schoology Worker binding remains open. |
 | 3. Web app pilot | Build family sign-in, both provider connection flows, a child picker, a responsive dashboard, and scheduled checks and reports. | A guardian can set up, reconnect, switch children, and review reports from phone and desktop browsers. Both providers update with no guardian device running. |
 | 4. Invite more families | Add invite and membership controls, revocation and deletion, per-family workload limits, and a tested credential design. | Two synthetic families cannot read or overwrite each other’s records or sessions. Verify onboarding with a second consenting household before expanding. |
 
@@ -169,7 +170,18 @@ times. The compared run matched the Mac checker on roster and grades,
 missing flags, and attendance. Both readers had two of nine courses
 without a readable assignment table.
 
-This covers one guardian account, one day, and one hosted network. Next,
-run the probe and a verified read from the intended runner platform,
-starting with Cloudflare Containers. The
-[plan review](plan-review.md) lists the results and the revised sequence.
+The Cloudflare Containers probe returned the portal rejection page at
+12:32 p.m. Pacific. The AWS Oregon EC2 public probe reached the real login
+form at 12:53 p.m. Pacific. A fresh automated login and verified read
+completed at 1:16 p.m. A 1:34 p.m. follow-up matched the Mac's assignment
+coverage on all nine rows. Seven classes had readable detail. School
+Counselor HS and Program Support had no published grade link on either
+runner. The AWS observation must keep those gaps unknown.
+
+The [runner](../../scripts/source-runner/README.md) pushes its results
+to the [Worker](../../worker/README.md), which stores each check as its
+own row in D1. The two are tested together against the database schema.
+The [AWS deployment](../../deploy/aws/README.md) starts the instance on
+a schedule and powers it off after the check. The deployed Worker, the
+instance service and the schedule remain to be verified live. See the
+[plan review](plan-review.md) for the comparison limits.

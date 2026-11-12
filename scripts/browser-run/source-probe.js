@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 import { sites } from '../../src/auth.js';
-import { classifyPortalStart } from './portal-start.js';
+import { inspectPortalStart } from './portal-start.js';
 
 // Usage: node scripts/browser-run/source-probe.js [--headed] [--label name]
 // The label names the runner in the output so results from several
@@ -18,17 +18,7 @@ try {
   const response = await page.goto(sites.source.start, {
     waitUntil: 'domcontentloaded', timeout: 20000,
   });
-  const sameOrigin = new URL(page.url()).origin === sites.source.origin;
-  const accountField = page.locator('#fieldAccount');
-  if (sameOrigin) await accountField.waitFor({ timeout: 5000 }).catch(() => null);
-  const outcome = classifyPortalStart({
-    title: await page.title(),
-    bodyText: sameOrigin ? await page.locator('body').innerText() : '',
-    sameOrigin,
-    ok: response?.ok() ?? false,
-    loginForm: sameOrigin && await accountField.isVisible() &&
-      await page.locator('input[type="password"]:visible').first().isVisible(),
-  });
+  const outcome = await inspectPortalStart(page, response, sites.source.origin);
   process.stdout.write(`${JSON.stringify({ ...outcome, httpStatus: response?.status() ?? null,
     checkedAt: new Date().toISOString(), client })}\n`);
   if (outcome.result !== 'login_form_reached') process.exitCode = 1;

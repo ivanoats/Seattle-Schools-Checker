@@ -9,7 +9,7 @@
     "build": "node scripts/build.js",
     "setup:keychain": "node scripts/setup.js",
     "test": "node --test",
-    "check": "node --check src/auth.js && node --check src/source.js && node --check src/glucose.js && node --check src/schoology.js && node --check src/worker.js && node --check src/core/children.js && node --check src/core/observations.js && node --check src/core/family-report.js && node --check src/report-cli.js"
+    "check": "node --check src/auth.js && node --check src/source.js && node --check src/glucose.js && node --check src/schoology.js && node --check src/worker.js && node --check src/core/children.js && node --check src/core/observations.js && node --check src/core/family-report.js && node --check src/report-cli.js && node --check src/cloudflare/ingest.js && node --check src/cloudflare/worker.js && node --check scripts/source-runner/policy.js && node --check scripts/source-runner/run.js"
   },
   "dependencies": {
     "playwright": "1.65.0"

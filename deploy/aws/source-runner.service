@@ -1,0 +1,23 @@
+[Unit]
+Description=Read The Source once and post the result
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=source-runner
+Group=source-runner
+RuntimeDirectory=source-runner
+RuntimeDirectoryMode=0700
+StateDirectory=source-runner
+StateDirectoryMode=0700
+Environment=HOME=/var/lib/source-runner
+Environment=SOURCE_STATE_DIR=/var/lib/source-runner
+ExecStart=/opt/source-runner/deploy/aws/run-once.sh
+TimeoutStartSec=300
+# Power off after the check, whatever its result. Create
+# /etc/source-runner/stay-up to keep the instance running for maintenance.
+ExecStopPost=+/bin/sh -c 'test -e /etc/source-runner/stay-up || systemctl poweroff --no-block'
+
+[Install]
+WantedBy=multi-user.target
