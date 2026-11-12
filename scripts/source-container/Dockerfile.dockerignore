@@ -1,0 +1,11 @@
+**
+!package.json
+!package-lock.json
+!src/
+!src/auth.js
+!scripts/
+!scripts/browser-run/
+!scripts/browser-run/source-probe.js
+!scripts/browser-run/portal-start.js
+!scripts/source-container/
+!scripts/source-container/server.js
