@@ -15,17 +15,17 @@ apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl git unzip
 
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]; then
-  curl --fail --silent --show-error --location https://deb.nodesource.com/setup_22.x | sh -
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error --location https://deb.nodesource.com/setup_22.x | sh -
   apt-get install -y --no-install-recommends nodejs
 fi
 if ! command -v google-chrome >/dev/null; then
-  curl --fail --silent --show-error --location --output /root/google-chrome.deb \
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error --location --output /root/google-chrome.deb \
     https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
   apt-get install -y --no-install-recommends /root/google-chrome.deb
   rm /root/google-chrome.deb
 fi
 if ! test -x /usr/local/bin/aws; then
-  curl --fail --silent --show-error --location --output /root/awscli.zip \
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error --location --output /root/awscli.zip \
     https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
   unzip -q -o /root/awscli.zip -d /root
   /root/aws/install --update

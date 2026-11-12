@@ -138,7 +138,7 @@ test('a second run inside the interval does nothing', async () => {
   assert.deepEqual(await harness.run(), { status: 'too_soon', results: [] });
   assert.equal(decide(state, { now: now + 6 * hour, interval: 6 * hour, tag }).proceed, true);
   assert.equal(intervalMs('5'), hour);
-  assert.equal(intervalMs(undefined), 6 * hour);
+  assert.equal(intervalMs(), 6 * hour);
   assert.equal(intervalMs('nonsense'), 6 * hour);
 });
 
