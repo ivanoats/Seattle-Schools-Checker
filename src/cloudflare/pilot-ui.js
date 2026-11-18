@@ -272,5 +272,5 @@ export function pilotClient() {
   });
   $('child').addEventListener('change', () => loadReport(true));
   $('refresh').addEventListener('click', () => loadReport());
-  start();
+  void start();
 }

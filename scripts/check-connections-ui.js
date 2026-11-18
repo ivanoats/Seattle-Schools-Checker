@@ -1,7 +1,9 @@
 // Full browser -> authenticated API -> real SQLite -> claimed discovery result
 // -> parent confirmation. Synthetic accounts only; no live school traffic.
 import assert from 'node:assert/strict';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { generateKeyPair, SignJWT } from 'jose';
 import { chromium } from 'playwright';
@@ -72,8 +74,7 @@ try {
   await schoolTwo.getByLabel('How should we add Alex Two?').selectOption({ label: 'Same child as Alex Two' });
   await schoolTwo.getByRole('button', { name: 'Confirm child' }).click();
   await page.getByText('Alex Two was added. You can choose this child above.').waitFor();
-  const preview = '/private/tmp/seattle-schools-connection-preview';
-  await mkdir(preview, { recursive: true });
+  const preview = await mkdtemp(join(tmpdir(), 'school-connections-preview-'));
   await page.screenshot({ path: preview + '/connected-mobile.png', fullPage: true });
   await page.getByRole('button', { name: 'Disconnect Schoology', exact: true }).click();
   await page.getByText('Disconnected. Saved credentials were deleted.').waitFor();
@@ -81,7 +82,6 @@ try {
   assert.equal(sqlite.prepare("SELECT credentials FROM pilot_connections WHERE provider='schoology'").get().credentials, null);
   assert.deepEqual(errors, []);
   assert.equal(await page.locator('body').evaluate(el => el.scrollWidth <= innerWidth), true);
-  await mkdir('/private/tmp/seattle-schools-connections-preview', { recursive: true });
-  await page.screenshot({ path: '/private/tmp/seattle-schools-connections-preview/mobile.png', fullPage: true });
+
   console.log('Connection UI passed: both accounts, discovered children, explicit cross-portal match, selected child and credential deletion. Synthetic data only.');
 } finally { await browser.close(); sqlite.close(); }

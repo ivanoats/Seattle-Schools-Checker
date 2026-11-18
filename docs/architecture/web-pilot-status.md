@@ -1,10 +1,10 @@
 # Invite-only web pilot
 
-## Implemented locally
+## Implementation
 
 This branch contains the invitation/dashboard foundation and account connection
-pipeline, tested locally. It is not yet a deployed self-service release.
-No cloud resources have been changed and no invitations have been sent.
+pipeline. The first private Cloudflare deployment is configured; live parent
+sign-in and child discovery still need verification before another family joins.
 
 - `/app` provides a responsive child picker, saved provider check times,
   semester grades, Source missing work, attendance, and Schoology evidence
@@ -26,26 +26,33 @@ No cloud resources have been changed and no invitations have been sent.
 - Existing runner ingestion, local Keychain, checks and report workflows are
   unchanged. The existing runner is not enrolled in the new membership tables.
 
-## Live inspection on November 18, 2026
+## Private rollout on November 18, 2026
 
-- The deployed Cloudflare Worker has one active version from November 12,
-  with D1 and the four existing single-family secrets bound. Its `/app`
-  route returns HTTP 404. The dashboard in this branch is not live.
-- A direct `sqlite_master` read confirms the `provider_checks` table exists;
-  an aggregate query found no recorded provider checks. The new family tables
-  are absent. D1 list metadata incorrectly reported zero tables, so the direct
-  schema query is the stronger evidence.
-- The Access API reports `access.api.error.not_enabled`. Parent sign-in
-  must be enabled/configured before invitations can work.
-- The Oregon EC2 probe instance is stopped and has no IAM instance profile.
-  There are no Oregon Scheduler schedules. The two historical `source-runner`
-  CloudFormation stacks are `DELETE_COMPLETE`; there is no active stack with
-  that name. No instance was started and no infrastructure was changed.
+- PR #5 contains the pilot implementation and reconciles the existing Source
+  runner squash merge on `main`.
+- Cloudflare migrations 0001–0003 are applied. The Worker has Browser Run,
+  the minute-by-minute discovery consumer, encrypted connection storage and
+  separate discovery secrets. Existing single-family secret bindings remain.
+- Access is activated with email one-time PIN and one explicitly allowed pilot
+  identity. Signed-out `/app` and `/api/pilot/children` requests redirect to
+  Access. No second household has been invited. A seven-day invitation for the
+  operator's test identity is prepared privately, outside the repository.
+- A Browser Run smoke test loaded Schoology's public login form and found the
+  password input. Schoology account connection is enabled for the private live
+  test; successful unattended authentication and production child discovery
+  are not yet verified for this pipeline.
+- Source account connection remains disabled. AWS rejected `iam:CreateRole`
+  for the connected operator. The Oregon EC2 probe instance remains stopped
+  without an instance profile, and no discovery runner is installed or claimed
+  to be ready. An administrator must provision its scoped execution role and
+  instance profile before setup can continue.
+- No school passwords or student records were read during deployment. The
+  existing local checks and scheduled report workflow were not changed.
 
-Evidence came from Worker deployment/version records, D1 schema and aggregate
-queries, the Access applications API, EC2 DescribeInstances, Scheduler
-ListSchedules, and CloudFormation ListStacks/DescribeStacks. No credential
-values or raw student observations were retrieved.
+Evidence: migration records, Worker deployment and secret-binding names,
+Access application/policy responses, signed-out HTTP smoke tests, Browser Run
+login-form rendering, and the AWS API permission denial. Deployment does not
+establish successful account connection or recurring multi-family reporting.
 
 ## Required before another household can onboard
 

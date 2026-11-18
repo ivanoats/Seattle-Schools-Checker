@@ -102,8 +102,8 @@ stopped EC2 instance. Keep Chromium sandboxing enabled; verify Linux user
 namespace support rather than adding `--no-sandbox`.
 
 Cloud deployment, secrets, Access activation, EC2 startup/IAM and invitation
-delivery are separate approved operations. No cloud configuration was changed
-while building this branch.
+delivery are separate approved operations. The first private rollout is recorded
+in `web-pilot-status.md`; Source remains gated pending AWS setup.
 
 ## Validation and remaining launch gates
 

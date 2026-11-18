@@ -1,6 +1,8 @@
 // Synthetic browser checks only. No real portal or account is contacted.
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 import worker from '../src/cloudflare/worker.js';
 import { buildFamilyReport } from '../src/core/family-report.js';
@@ -74,8 +76,7 @@ try {
   await page.reload();
   await page.getByRole('heading', { name: 'Alex Two’s saved school update' }).waitFor();
   assert.equal(await page.locator('body').evaluate(el => el.scrollWidth <= window.innerWidth), true);
-  const screenshots = process.env.PILOT_SCREENSHOT_DIR || '/private/tmp/seattle-schools-pilot-preview';
-  await mkdir(screenshots, { recursive: true });
+  const screenshots = await mkdtemp(join(tmpdir(), 'school-pilot-preview-'));
   await page.screenshot({ path: screenshots + '/mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: screenshots + '/desktop.png', fullPage: true });
