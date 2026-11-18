@@ -136,3 +136,24 @@ not yet run recurring checks for newly connected children.
 References: [Browser Run Playwright](https://developers.cloudflare.com/browser-run/playwright/),
 [Worker duration limits](https://developers.cloudflare.com/workers/platform/limits/),
 [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/).
+
+## Source child-menu correction on November 18, 2026
+
+The live parent portal renders ID-less child anchors with a literal
+`javascript:switchStudent(number);` href. Clicking the visible anchor submits
+`switch_student_form` to `/guardian/home.html` with one hidden
+`selected_student_id` field. The initial fixtures used URL/element-ID tabs and
+did not represent this layout, so sign-in succeeded but discovery stopped.
+
+Discovery now recognizes that exact link shape and clicks the rendered anchor;
+it never evaluates or replays the handler. A page-scoped, single-use guard
+allows only the expected top-frame form POST, destination and selected ID.
+Extra fields, unrelated POSTs and repeat POSTs remain blocked. The selected tab
+and changed full-name heading must agree before a candidate is returned. The
+already selected child is verified without posting again. The numeric switch
+identity is retained in the validated mapping for subsequent Source reads.
+
+Synthetic regression tests reproduce the original layout failure, exercise the
+native form submission with two same-first-name children, reject extra fields
+and repeated submissions, and verify mapping persistence through confirmation.
+No real child names or portal IDs are included in fixtures.

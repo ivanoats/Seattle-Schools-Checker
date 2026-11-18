@@ -179,7 +179,7 @@ function validateChildren(provider, children) {
 }
 
 function cleanMapping(provider, mapping) {
-  const fields = provider === 'source' ? ['tabLabel', 'tabHref', 'tabId', 'studentHeading'] : ['banner', 'selectionHref'];
+  const fields = provider === 'source' ? ['tabLabel', 'tabHref', 'tabId', 'tabSwitchId', 'studentHeading'] : ['banner', 'selectionHref'];
   return Object.fromEntries(fields.filter(key => mapping[key] !== undefined).map(key => [key, mapping[key]]));
 }
 

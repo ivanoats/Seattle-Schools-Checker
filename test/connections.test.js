@@ -9,6 +9,7 @@ import { sealCredentials, openCredentials } from '../src/cloudflare/connection-c
 import { discoverSourceChildren, discoverSchoologyChildren } from '../src/portal-discovery.js';
 import { chromium } from 'playwright';
 import { discoverAccount } from '../src/discover-account.js';
+import { consumeSourceChildSwitch, sourceSwitchId } from '../src/source-child-navigation.js';
 import { runSourceDiscovery, discoveryEndpoint } from '../scripts/source-runner/discover.js';
 
 const origin = 'https://pilot.example';
@@ -236,4 +237,55 @@ test('rendered portal discovery verifies two same-first-name children and reject
     mismatch = true;
     await assert.rejects(discoverSchoologyChildren(page), { status: 'child_identity_unverified' });
   } finally { await browser.close(); }
+});
+
+test('Source discovers ID-less child links through the rendered student-switch form', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const context = await browser.newContext(); const page = await context.newPage();
+    let selected = '1'; const posted = [];
+    await context.route('https://ps.seattleschools.org/**', async route => {
+      if (route.request().method() === 'POST') {
+        const request = route.request();
+        const forged = { method: () => 'POST', isNavigationRequest: () => true, frame: () => page.mainFrame(),
+          url: () => 'https://ps.seattleschools.org/guardian/home.html',
+          headers: () => ({ 'content-type': 'application/x-www-form-urlencoded' }),
+          postData: () => 'selected_student_id=2&password=unexpected' };
+        assert.equal(consumeSourceChildSwitch(page, forged), false, 'extra form fields stay blocked');
+        assert.equal(consumeSourceChildSwitch(page, request), true, 'the observed native child switch is allowed');
+        assert.equal(consumeSourceChildSwitch(page, request), false, 'a second POST is blocked');
+        selected = new URLSearchParams(request.postData()).get('selected_student_id');
+        posted.push(selected);
+      }
+      await route.fulfill({ contentType: 'text/html', body: `<button id="btnLogout">Sign out</button>
+        <form id="switch_student_form" action="/guardian/home.html" method="post"><input type="hidden" name="selected_student_id"></form>
+        <ul id="students-list">${['1','2'].map(n => `<li class="${n === selected ? 'selected' : ''}"><a href="javascript:switchStudent(${n});">Alex</a></li>`).join('')}</ul>
+        <h1>Grades: ${selected === '1' ? 'One' : 'Two'}, Alex</h1>
+        <script>function switchStudent(id) { const f=document.getElementById('switch_student_form'); f.elements.namedItem('selected_student_id').value=id; f.submit(); }</script>` });
+    });
+    const children = await discoverSourceChildren(page);
+    assert.deepEqual(children.map(c => c.displayName), ['Alex One', 'Alex Two']);
+    assert.deepEqual(children.map(c => c.mapping.tabSwitchId), ['1', '2']);
+    assert.notEqual(children[0].remoteId, children[1].remoteId);
+    assert.deepEqual(posted, ['2'], 'the already selected child needs no repeated POST');
+  } finally { await browser.close(); }
+});
+
+
+test('Source switch mappings survive confirmation; arbitrary script hrefs and invalid IDs are rejected', async () => {
+  assert.equal(sourceSwitchId('javascript:switchStudent(123);'), '123');
+  for (const href of ['javascript:other(123);', 'javascript:switchStudent(123);other();', 'https://bad.example/']) {
+    assert.equal(sourceSwitchId(href), null);
+  }
+  const env = await environment();
+  await call(env, 'connections/source/connect', credentials());
+  const job = await claimDiscovery(env, 'source', now + 1000);
+  const child = { ...sourceChild(), remoteId: 'student-switch:123',
+    mapping: { tabLabel: 'Alex', tabSwitchId: '123', studentHeading: 'One, Alex' } };
+  await completeDiscovery(env, 'source', job.id, job.lease, { status: 'ok', children: [child] }, now + 2000);
+  const connection = (await state(env))[0];
+  assert.equal(connection.status, 'ready');
+  assert.equal((await call(env, 'connections/source/confirm', { candidateId: connection.candidates[0].id })).status, 200);
+  const mapping = JSON.parse(env.sqlite.prepare('SELECT mapping FROM pilot_child_providers').get().mapping);
+  assert.equal(mapping.tabSwitchId, '123');
 });

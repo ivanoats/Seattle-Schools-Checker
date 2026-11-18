@@ -18,6 +18,7 @@ export function configuredChild(config, childId) {
     if (!source && !schoology) throw new Error('invalid_child_config');
     if (source) {
       if (!nonempty(source.tabLabel) || !nonempty(source.studentHeading)
+          || (source.tabSwitchId !== undefined && (typeof source.tabSwitchId !== 'string' || !/^\d{1,12}$/.test(source.tabSwitchId)))
           || (source.tabId !== undefined && !/^[a-zA-Z][a-zA-Z0-9_-]{0,100}$/.test(source.tabId))
           || (source.tabHref !== undefined && !validSourceHref(source.tabHref))
           || (source.term !== undefined && !nonempty(source.term))

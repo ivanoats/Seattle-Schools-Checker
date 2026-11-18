@@ -1,5 +1,6 @@
 import { CheckError, ensureLogin, isSignedIn, sites } from './auth.js';
 import { discoverSourceChildren, discoverSchoologyChildren } from './portal-discovery.js';
+import { consumeSourceChildSwitch } from './source-child-navigation.js';
 import { signInSchoology } from '../scripts/browser-run/schoology-login.js';
 
 // Every job owns a fresh browser/context; no family shares cookies or tabs.
@@ -23,10 +24,11 @@ export async function discoverAccount(provider, credentials, launch, timeoutMs =
       }
     }
     credentials.username = ''; credentials.password = '';
-    // Child discovery uses only rendered pages and same-origin GET navigation.
+    // Child discovery reads rendered pages. Source may submit only its verified,
+    // single-use child-selection form; all other non-GET requests stay blocked.
     await context.route('**/*', async route => {
       const request = route.request(); const url = new URL(request.url());
-      const allowed = ['GET', 'HEAD'].includes(request.method()) && (url.origin === sites[provider].origin
+      const allowed = (provider === 'source' && consumeSourceChildSwitch(page, request)) || ['GET', 'HEAD'].includes(request.method()) && (url.origin === sites[provider].origin
         || (provider === 'schoology' && url.origin === 'https://asset-cdn.schoology.com' && url.pathname.startsWith('/assets/')));
       if (allowed) await route.continue(); else await route.abort();
     });

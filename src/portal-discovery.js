@@ -1,4 +1,5 @@
 import { CheckError, isSignedIn, sites } from './auth.js';
+import { sourceSwitchId, clickSourceChildSwitch } from './source-child-navigation.js';
 
 const text = value => typeof value === 'string' && value.trim() && value.trim().length <= 150;
 const sourceLinks = '#students-list a, a[href^="/guardian/home.html?student="]';
@@ -32,13 +33,22 @@ export async function discoverSourceChildren(page) {
     const navigates = href?.origin === sites.source.origin && href.pathname === '/guardian/home.html'
       && /^\d+$/.test(href.searchParams.get('student') ?? '');
     const tabId = /^[a-zA-Z][a-zA-Z0-9_-]{0,100}$/.test(link.id ?? '') ? link.id : null;
-    if (!navigates && !tabId) throw new CheckError('child_discovery_layout_unverified');
-    const remoteId = navigates ? href.pathname + href.search : tabId;
+    const switchId = sourceSwitchId(link.href);
+    if (!navigates && !tabId && !switchId) throw new CheckError('child_discovery_layout_unverified');
+    const remoteId = navigates ? href.pathname + href.search : switchId ? `student-switch:${switchId}` : tabId;
     if (seen.has(remoteId)) continue;
     seen.add(remoteId);
     await page.goto(sites.source.origin + '/guardian/home.html', { waitUntil: 'domcontentloaded' });
     if (navigates) {
       await page.goto(href.href, { waitUntil: 'domcontentloaded' });
+    } else if (switchId) {
+      const tab = page.locator('#students-list a').filter({ hasText: link.label });
+      const matches = [];
+      for (const candidate of await tab.all()) {
+        if (sourceSwitchId(await candidate.getAttribute('href')) === switchId) matches.push(candidate);
+      }
+      if (matches.length !== 1) throw new CheckError('child_identity_ambiguous');
+      await clickSourceChildSwitch(page, matches[0], switchId);
     } else {
       // Only a rendered child-tab click; no internal API or JavaScript handler replay.
       const tab = page.locator(`[id="${tabId}"]`);
@@ -64,7 +74,7 @@ export async function discoverSourceChildren(page) {
     const displayName = `${given.join(',').trim()} ${surname.trim()}`;
     if (children.some(c => c.mapping.studentHeading === studentHeading)) throw new CheckError('child_identity_ambiguous');
     children.push({ remoteId, displayName, mapping: { tabLabel: link.label, studentHeading,
-      ...(navigates ? { tabHref: href.pathname + href.search } : { tabId }) } });
+      ...(navigates ? { tabHref: href.pathname + href.search } : switchId ? { tabSwitchId: switchId } : { tabId }) } });
   }
   return children;
 }

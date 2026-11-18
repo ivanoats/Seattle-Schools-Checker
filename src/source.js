@@ -1,11 +1,12 @@
 import { CheckError, sites } from './auth.js';
+import { sourceSwitchId, clickSourceChildSwitch } from './source-child-navigation.js';
 
 export function parseAttendance(text) {
   return text.split('\n').map(line => line.match(/^(.*?) - (\d{2})\/(\d{2})\/(\d{4}) - ([A-Z]+)$/))
     .filter(Boolean).map(m => ({ period: m[1], date: `${m[4]}-${m[2]}-${m[3]}`, code: m[5] }));
 }
 export async function readSource(page, child) {
-  const { tabLabel, tabHref, tabId, studentHeading } = child.providers.source;
+  const { tabLabel, tabHref, tabId, tabSwitchId, studentHeading } = child.providers.source;
   const verifyHeading = async label => {
     if (new URL(page.url()).origin !== sites.source.origin) throw new CheckError('source_child_tab_unverified');
     await page.getByRole('heading', { name: `${label}: ${studentHeading}`, exact: true }).waitFor();
@@ -15,12 +16,14 @@ export async function readSource(page, child) {
   const matches = [];
   for (const tab of tabs) {
     const href = await tab.getAttribute('href');
+    if (tabSwitchId && sourceSwitchId(href) !== tabSwitchId) continue;
     if (tabId && await tab.getAttribute('id') !== tabId) continue;
     // Existing PowerSchool tabs can switch the selected student via an event handler.
     if (!tabHref || (href && new URL(href, page.url()).href === sites.source.origin + tabHref)) matches.push(tab);
   }
   if (matches.length !== 1) throw new CheckError('source_child_tab_unverified');
-  await matches[0].click();
+  if (tabSwitchId) await clickSourceChildSwitch(page, matches[0], tabSwitchId);
+  else await matches[0].click();
   await verifyHeading('Grades');
   await page.locator('#tblgrades tr[id]').first().waitFor({ state: 'attached' });
   const courses = await page.locator('#tblgrades tr[id]').evaluateAll(rows => rows.map(r => {
