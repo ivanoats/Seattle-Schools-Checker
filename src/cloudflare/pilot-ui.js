@@ -131,7 +131,11 @@ export function pilotClient() {
           const saved = await api('connections/' + provider + '/confirm', { candidateId: candidate.id, childId: select.value || undefined });
           await reloadChildren(); $('child').value = saved.childId; await loadReport(true); await loadConnections();
           $('connection-status').textContent = candidate.displayName + ' was added. You can choose this child above.';
-        } catch { $('connection-status').textContent = 'We could not confirm this child. Refresh the account check and try again.'; }
+        } catch (error) {
+          $('connection-status').textContent = error.message === 'child_provider_conflict'
+            ? 'That child already has a different record in this portal. Add this as a new child, or choose the correct existing child.'
+            : 'We could not confirm this child. Refresh the account check and try again.';
+        }
         finally { button.disabled = false; }
       });
     }

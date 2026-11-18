@@ -41,7 +41,19 @@ export async function discoverSourceChildren(page) {
       await page.goto(href.href, { waitUntil: 'domcontentloaded' });
     } else {
       // Only a rendered child-tab click; no internal API or JavaScript handler replay.
-      await Promise.all([page.waitForEvent('domcontentloaded', { timeout: 10000 }), page.locator(`[id="${tabId}"]`).click()]);
+      const tab = page.locator(`[id="${tabId}"]`);
+      const active = await tab.evaluate(el => el.matches('[aria-current="page"], [aria-selected="true"], .selected')
+        || !!el.closest('li.selected, li.active'));
+      if (!active) {
+        const before = await page.getByRole('heading', { name: /^Grades: / }).innerText();
+        await tab.click();
+        await page.waitForFunction(({ id, previous }) => {
+          const el = document.getElementById(id);
+          const selected = el?.matches('[aria-current="page"], [aria-selected="true"], .selected') || el?.closest('li.selected, li.active');
+          const heading = Array.from(document.querySelectorAll('h1,h2,[role="heading"]')).find(e => /^Grades: /.test(e.innerText));
+          return selected && heading?.innerText !== previous;
+        }, { id: tabId, previous: before }, { timeout: 10000 });
+      }
     }
     await verifiedPage(page, 'source');
     const heading = page.getByRole('heading', { name: /^Grades: / });

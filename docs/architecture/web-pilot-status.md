@@ -2,7 +2,8 @@
 
 ## Implemented locally
 
-This branch adds the first parent-facing slice, not a self-service release.
+This branch contains the invitation/dashboard foundation and account connection
+pipeline, tested locally. It is not yet a deployed self-service release.
 No cloud resources have been changed and no invitations have been sent.
 
 - `/app` provides a responsive child picker, saved provider check times,

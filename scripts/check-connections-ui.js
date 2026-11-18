@@ -72,6 +72,9 @@ try {
   await schoolTwo.getByLabel('How should we add Alex Two?').selectOption({ label: 'Same child as Alex Two' });
   await schoolTwo.getByRole('button', { name: 'Confirm child' }).click();
   await page.getByText('Alex Two was added. You can choose this child above.').waitFor();
+  const preview = '/private/tmp/seattle-schools-connection-preview';
+  await mkdir(preview, { recursive: true });
+  await page.screenshot({ path: preview + '/connected-mobile.png', fullPage: true });
   await page.getByRole('button', { name: 'Disconnect Schoology', exact: true }).click();
   await page.getByText('Disconnected. Saved credentials were deleted.').waitFor();
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM pilot_children').get().n, 1);

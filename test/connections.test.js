@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFile } from 'node:fs/promises';
 import { generateKeyPair, SignJWT } from 'jose';
 import { handlePilot, readBody } from '../src/cloudflare/pilot.js';
-import { claimDiscovery, completeDiscovery, handleDiscoveryRunner } from '../src/cloudflare/connections.js';
+import { claimDiscovery, completeDiscovery, handleDiscoveryRunner, disconnectConnection } from '../src/cloudflare/connections.js';
 import { sealCredentials, openCredentials } from '../src/cloudflare/connection-crypto.js';
 import { discoverSourceChildren, discoverSchoologyChildren } from '../src/portal-discovery.js';
 import { chromium } from 'playwright';
@@ -81,6 +81,8 @@ test('parent connects both accounts, confirms discovered children and explicitly
   assert.equal((await call(env, 'connections/source/confirm', { candidateId: connections[0].candidates[0].id }, 2)).status, 404);
   const saved = await (await call(env, 'connections/source/confirm', { candidateId: connections[0].candidates[0].id })).json();
   assert.equal(saved.status, 'linked');
+  assert.equal((await call(env, 'connections/source/confirm', { candidateId: connections[0].candidates[1].id, childId: saved.childId })).status, 409);
+  assert.equal(env.sqlite.prepare("SELECT remote_id FROM pilot_child_providers WHERE provider = 'source'").get().remote_id, 'student-1');
   assert.equal((await call(env, 'connections/schoology/confirm', { candidateId: connections[1].candidates[0].id, childId: saved.childId })).status, 200);
   const list = await (await call(env, 'children')).json();
   assert.equal(list.children.length, 1);
@@ -135,6 +137,34 @@ test('family revocation prevents new runner claims and in-flight completion', as
   assert.equal((await call(env, 'connections')).status, 403);
 });
 
+test('disconnect wins against a reconnect that already read the old credential revision', async () => {
+  const env = await environment();
+  await call(env, 'connections/source/connect', credentials());
+  const job = await claimDiscovery(env, 'source', now + 1000);
+  await completeDiscovery(env, 'source', job.id, job.lease, { status: 'ok', children: [sourceChild()] }, now + 2000);
+  const batch = env.DB.batch; let batches = 0;
+  env.DB.batch = async statements => {
+    if (++batches === 2) {
+      // Submission has read the old revision and encrypted its payload, but
+      // has not committed. A completed disconnect must cancel that attempt.
+      env.DB.batch = batch;
+      await disconnectConnection(env, { family_id: 'family-1' }, 'source', now + 61001);
+    }
+    return batch(statements);
+  };
+  assert.equal((await call(env, 'connections/source/connect', credentials(), 1, now + 61000)).status, 409);
+  const connection = env.sqlite.prepare('SELECT status, credentials FROM pilot_connections').get();
+  assert.equal(connection.status, 'disconnected'); assert.equal(connection.credentials, null);
+  assert.equal(env.sqlite.prepare("SELECT count(*) AS n FROM pilot_discovery_jobs WHERE state = 'queued'").get().n, 0);
+});
+
+test('a parent submission expires only that family’s jobs', async () => {
+  const env = await environment();
+  await call(env, 'connections/source/connect', credentials(), 2);
+  await call(env, 'connections/source/connect', credentials(), 1, now + 301000);
+  assert.equal(env.sqlite.prepare("SELECT status FROM pilot_connections WHERE family_id = 'family-2'").get().status, 'queued');
+});
+
 test('runner errors are sanitized, credentials cleared and machine transport refuses redirects', async () => {
   const input = credentials();
   const result = await discoverAccount('source', input, async () => { throw new Error('synthetic-password must never appear'); });
@@ -180,13 +210,15 @@ test('rendered portal discovery verifies two same-first-name children and reject
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     const page = await browser.newPage(); page.setDefaultTimeout(1000);
-    let mismatch = false;
+    let mismatch = false; let idTabs = false;
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
       const n = url.searchParams.get('student') ?? '1';
       const name = n === '2' ? 'Two' : 'One';
+      const navigation = idTabs ? `<div id="students-list"><ul>${[1,2].map(value => `<li class="${n === String(value) ? 'selected' : ''}"><a id="student-link-${value}" href="#" onclick="${n === String(value) ? 'return false' : `location.href='/guardian/home.html?student=${value}';return false`}">Alex</a></li>`).join('')}</ul></div>`
+        : '<div id="students-list"><a href="/guardian/home.html?student=1">Alex</a><a href="/guardian/home.html?student=2">Alex</a></div>';
       const body = url.hostname === 'ps.seattleschools.org'
-        ? `<button id="btnLogout">Sign out</button><div id="students-list"><a href="/guardian/home.html?student=1">Alex</a><a href="/guardian/home.html?student=2">Alex</a></div><h1>Grades: ${name}, Alex</h1>`
+        ? `<button id="btnLogout">Sign out</button>${navigation}<h1>Grades: ${name}, Alex</h1>`
         : `<div id="child-session-banner">You are viewing as ${mismatch ? 'Other Child' : 'Alex One'}</div>
           <button aria-controls="child-menu" aria-expanded="false" onclick="document.getElementById('child-menu').hidden=false;this.setAttribute('aria-expanded','true')">Children</button>
           <div id="child-menu" hidden><a href="/parent/index?child=123">Alex One</a></div>`;
@@ -195,6 +227,10 @@ test('rendered portal discovery verifies two same-first-name children and reject
     const found = await discoverSourceChildren(page);
     assert.deepEqual(found.map(c => c.displayName), ['Alex One', 'Alex Two']);
     assert.notEqual(found[0].remoteId, found[1].remoteId);
+    idTabs = true;
+    const idFound = await discoverSourceChildren(page);
+    assert.deepEqual(idFound.map(c => c.displayName), ['Alex One', 'Alex Two']);
+    assert.equal(idFound[0].mapping.tabId, 'student-link-1');
     const school = await discoverSchoologyChildren(page);
     assert.equal(school[0].mapping.selectionHref, '/parent/index?child=123');
     mismatch = true;

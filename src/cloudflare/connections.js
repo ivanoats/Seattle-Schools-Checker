@@ -53,7 +53,6 @@ export async function submitConnection(env, member, provider, input, now) {
     return reply(400, { status: 'credentials_required' });
   }
   await expireJobs(env, now, member.family_id);
-  await expireJobs(env, now);
   const existing = (await rows(env.DB.prepare('SELECT * FROM pilot_connections WHERE family_id = ? AND provider = ?')
     .bind(member.family_id, provider)))[0];
   if (existing && ['queued', 'discovering'].includes(existing.status)) return reply(409, { status: 'discovery_in_progress' });
@@ -69,8 +68,9 @@ export async function submitConnection(env, member, provider, input, now) {
       SELECT ?, ?, ?, ?, ?, 'queued', ?, ? FROM pilot_families WHERE id = ? AND revoked_at IS NULL
       ON CONFLICT(family_id, provider) DO UPDATE SET revision = excluded.revision, credentials = excluded.credentials,
         status = 'queued', reason = NULL, submitted_at = excluded.submitted_at, updated_at = excluded.updated_at
-      WHERE pilot_connections.status NOT IN ('queued', 'discovering') AND pilot_connections.submitted_at <= ?`)
-      .bind(connection.id, member.family_id, provider, connection.revision, encrypted, timestamp, timestamp, member.family_id, iso(now - 60000)),
+      WHERE pilot_connections.status NOT IN ('queued', 'discovering') AND pilot_connections.submitted_at <= ?
+        AND pilot_connections.revision = ?`)
+      .bind(connection.id, member.family_id, provider, connection.revision, encrypted, timestamp, timestamp, member.family_id, iso(now - 60000), existing?.revision ?? ''),
     env.DB.prepare(`INSERT INTO pilot_discovery_jobs (id, connection_id, revision, state, created_at, expires_at)
       SELECT ?, id, revision, 'queued', ?, ? FROM pilot_connections WHERE id = ? AND revision = ?`)
       .bind(jobId, timestamp, iso(now + 300000), connection.id, connection.revision),
@@ -82,8 +82,11 @@ export async function submitConnection(env, member, provider, input, now) {
 
 export async function disconnectConnection(env, member, provider, now) {
   await env.DB.batch([
-    env.DB.prepare(`UPDATE pilot_connections SET revision = ?, credentials = NULL, status = 'disconnected', reason = NULL, updated_at = ?
-      WHERE family_id = ? AND provider = ?`).bind(crypto.randomUUID(), iso(now), member.family_id, provider),
+    env.DB.prepare(`INSERT INTO pilot_connections (id, family_id, provider, revision, credentials, status, submitted_at, updated_at)
+      SELECT ?, ?, ?, ?, NULL, 'disconnected', ?, ? FROM pilot_families WHERE id = ? AND revoked_at IS NULL
+      ON CONFLICT(family_id, provider) DO UPDATE SET revision = excluded.revision, credentials = NULL,
+        status = 'disconnected', reason = NULL, updated_at = excluded.updated_at`)
+      .bind(crypto.randomUUID(), member.family_id, provider, crypto.randomUUID(), iso(now - 60000), iso(now), member.family_id),
     env.DB.prepare(`UPDATE pilot_discovery_jobs SET state = 'cancelled' WHERE connection_id IN
       (SELECT id FROM pilot_connections WHERE family_id = ? AND provider = ?)`).bind(member.family_id, provider),
     env.DB.prepare(`DELETE FROM pilot_candidates WHERE connection_id IN
@@ -104,6 +107,13 @@ export async function confirmCandidate(env, member, provider, input) {
     WHERE connection_id = ? AND revision = ? AND remote_id = ?`).bind(candidate.connection_id, candidate.revision, candidate.remote_id)))[0];
   if (linked) return reply(200, { status: 'linked', childId: linked.child_id });
   const childId = input.childId || crypto.randomUUID();
+  const existingMapping = (await rows(env.DB.prepare(`SELECT connection_id, remote_id, mapping FROM pilot_child_providers
+    WHERE family_id = ? AND child_id = ? AND provider = ?`).bind(member.family_id, childId, provider)))[0];
+  const identityField = provider === 'source' ? 'studentHeading' : 'banner';
+  if (existingMapping && (existingMapping.connection_id !== candidate.connection_id || existingMapping.remote_id !== candidate.remote_id
+      || JSON.parse(existingMapping.mapping)[identityField] !== JSON.parse(candidate.mapping)[identityField])) {
+    return reply(409, { status: 'child_provider_conflict' });
+  }
   // Every insert rechecks the current connection revision, so disconnect or
   // reconnect while the parent confirms cannot revive an old mapping.
   const guard = `SELECT k.id FROM pilot_candidates k JOIN pilot_connections c ON c.id = k.connection_id
@@ -115,7 +125,10 @@ export async function confirmCandidate(env, member, provider, input) {
     env.DB.prepare(`INSERT INTO pilot_child_providers (family_id, child_id, provider, connection_id, revision, remote_id, mapping)
       SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard})
       ON CONFLICT(family_id, child_id, provider) DO UPDATE SET connection_id = excluded.connection_id,
-        revision = excluded.revision, remote_id = excluded.remote_id, mapping = excluded.mapping`)
+        revision = excluded.revision, remote_id = excluded.remote_id, mapping = excluded.mapping
+      WHERE pilot_child_providers.connection_id = excluded.connection_id AND pilot_child_providers.remote_id = excluded.remote_id
+        AND COALESCE(json_extract(pilot_child_providers.mapping, '$.studentHeading'), json_extract(pilot_child_providers.mapping, '$.banner'))
+          = COALESCE(json_extract(excluded.mapping, '$.studentHeading'), json_extract(excluded.mapping, '$.banner'))`)
       .bind(member.family_id, childId, provider, candidate.connection_id, candidate.revision, candidate.remote_id, candidate.mapping,
         candidate.id, member.family_id, provider),
   ]);
@@ -156,10 +169,18 @@ function validateChildren(provider, children) {
     try { configuredChild({ defaultChild: 'candidate', children: [{ id: 'candidate', displayName: child.displayName, providers: { [provider]: child.mapping } }] }); }
     catch { return false; }
     const identity = provider === 'source' ? child.mapping.studentHeading : child.mapping.banner;
+    const expectedName = provider === 'schoology' ? identity.replace(/^You are viewing as /, '')
+      : identity.includes(',') ? `${identity.slice(identity.indexOf(',') + 1).trim()} ${identity.slice(0, identity.indexOf(',')).trim()}` : null;
+    if (expectedName !== child.displayName) return false;
     if (identities.has(identity)) return false;
     identities.add(identity);
     return true;
   });
+}
+
+function cleanMapping(provider, mapping) {
+  const fields = provider === 'source' ? ['tabLabel', 'tabHref', 'tabId', 'studentHeading'] : ['banner', 'selectionHref'];
+  return Object.fromEntries(fields.filter(key => mapping[key] !== undefined).map(key => [key, mapping[key]]));
 }
 
 export async function completeDiscovery(env, provider, jobId, lease, output, now = Date.now()) {
@@ -179,7 +200,7 @@ export async function completeDiscovery(env, provider, jobId, lease, output, now
   const statements = [];
   if (ok) for (const child of output.children) statements.push(env.DB.prepare(`INSERT OR IGNORE INTO pilot_candidates
     (id, connection_id, revision, remote_id, display_name, mapping) SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard})`)
-    .bind(crypto.randomUUID(), job.connection_id, job.revision, child.remoteId, child.displayName, JSON.stringify(child.mapping), ...params));
+    .bind(crypto.randomUUID(), job.connection_id, job.revision, child.remoteId, child.displayName, JSON.stringify(cleanMapping(provider, child.mapping)), ...params));
   statements.push(env.DB.prepare(`UPDATE pilot_connections SET status = ?, reason = ?, updated_at = ?
     WHERE id = ? AND revision = ? AND EXISTS (${guard})`).bind(ok ? 'ready' : 'attention', ok ? null : reason, iso(now), job.connection_id, job.revision, ...params));
   // This runs last: stale leases cannot write candidates or connection status.

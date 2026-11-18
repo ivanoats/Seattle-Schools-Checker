@@ -113,13 +113,16 @@ revocation, rendered child menus and duplicate first names. The browser check
 uses the actual authenticated API and SQLite to connect both services, confirm
 a child, explicitly match portals, select that child and disconnect.
 
-Live child-menu verification is still required. Existing sessions were not
-signed in during the structural inspection on November 18. The adapters accept
+Live child-menu verification is still required. The approved local helpers
+successfully completed fresh Source/Schoology checks on November 18, but the
+separate structural inspector could not reuse their authenticated sessions.
+No live menu structure was verified by that inspection. The adapters accept
 Source student-list links and Schoology parent-index child links only, with full
 heading/banner verification. Unsupported layouts fail closed; synthetic fixtures
 are not evidence that the current production child menu uses those structures.
 Do not invite a second household until both live adapters and both deployed
-runners pass. No real password or raw session data was retrieved for this work.
+runners pass. Password values and raw session data were never retrieved by the
+agent; the approved helpers handled their own existing scoped credentials.
 
 After onboarding, scheduled multi-family grade/assignment collection and hosted
 reports remain a separate step. This branch stores provider mappings but does
