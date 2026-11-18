@@ -35,6 +35,7 @@ if ! test -x /usr/local/bin/aws; then
 fi
 
 id source-runner >/dev/null 2>&1 || useradd --system --home-dir /var/lib/source-runner --shell /usr/sbin/nologin source-runner
+install -d -o source-runner -g source-runner -m 700 /var/lib/source-runner
 
 rm -rf /opt/source-runner.new
 git clone --quiet "$repo" /opt/source-runner.new

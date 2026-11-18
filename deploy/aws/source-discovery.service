@@ -7,6 +7,8 @@ After=network-online.target
 Type=oneshot
 User=source-runner
 Group=source-runner
+StateDirectory=source-runner
+StateDirectoryMode=0700
 RuntimeDirectory=source-discovery
 RuntimeDirectoryMode=0700
 Environment=HOME=/var/lib/source-runner
