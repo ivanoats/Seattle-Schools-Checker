@@ -29,7 +29,7 @@ export function configuredChild(config, childId) {
     }
     if (schoology) {
       if (!nonempty(schoology.banner) || !schoology.banner.startsWith('You are viewing as ')
-          || (schoology.selectionHref !== undefined && !/^\/parent\/index\?child=\d+$/.test(schoology.selectionHref))
+          || (schoology.selectionHref !== undefined && !/^\/parent\/(?:index\?child=\d+|switch_child\/\d+)$/.test(schoology.selectionHref))
           || schoologyBanners.has(schoology.banner)) {
         throw new Error('invalid_child_config');
       }

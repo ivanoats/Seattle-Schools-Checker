@@ -157,3 +157,23 @@ Synthetic regression tests reproduce the original layout failure, exercise the
 native form submission with two same-first-name children, reject extra fields
 and repeated submissions, and verify mapping persistence through confirmation.
 No real child names or portal IDs are included in fixtures.
+
+## Schoology account-menu correction on November 18, 2026
+
+The live modern header identifies its account control with
+`data-sgy-sitenav="header-my-account-menu"` and `nav-trigger`; it does not
+provide the older `aria-controls` relationship. Opening that visible control
+mounts child anchors at `/parent/switch_child/<numeric-id>`. Their first text
+line is the full child name and the next line is the school subtitle.
+
+Discovery supports this exact menu marker and same-origin selection path,
+retains the older `/parent/index?child=` layout, ignores the school subtitle,
+and still requires the full child name to match `child-session-banner` after
+navigation. Account/settings links are not child candidates. Extra query
+parameters, fragments, credentials in URLs and outside origins are rejected.
+Synthetic tests reproduce the original failure with two children, check the
+name/banner mismatch case, and preserve the new path through confirmation.
+
+The deployed Source connection and saved child selection were verified in D1
+after the first parent retry. Schoology's modern menu was inspected in normal
+Chrome; its corrected cloud discovery still requires an explicit parent retry.

@@ -6,7 +6,7 @@ import { generateKeyPair, SignJWT } from 'jose';
 import { handlePilot, readBody } from '../src/cloudflare/pilot.js';
 import { claimDiscovery, completeDiscovery, handleDiscoveryRunner, disconnectConnection } from '../src/cloudflare/connections.js';
 import { sealCredentials, openCredentials } from '../src/cloudflare/connection-crypto.js';
-import { discoverSourceChildren, discoverSchoologyChildren } from '../src/portal-discovery.js';
+import { discoverSourceChildren, discoverSchoologyChildren, schoologyChildHref } from '../src/portal-discovery.js';
 import { chromium } from 'playwright';
 import { discoverAccount } from '../src/discover-account.js';
 import { consumeSourceChildSwitch, sourceSwitchId } from '../src/source-child-navigation.js';
@@ -288,4 +288,54 @@ test('Source switch mappings survive confirmation; arbitrary script hrefs and in
   assert.equal((await call(env, 'connections/source/confirm', { candidateId: connection.candidates[0].id })).status, 200);
   const mapping = JSON.parse(env.sqlite.prepare('SELECT mapping FROM pilot_child_providers').get().mapping);
   assert.equal(mapping.tabSwitchId, '123');
+});
+
+test('Schoology discovers modern account-menu child links without including school subtitles', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const context = await browser.newContext(); const page = await context.newPage();
+    let mismatch = false;
+    await context.route('https://app.schoology.com/**', async route => {
+      const selected = /\/parent\/switch_child\/(101|202)$/.exec(route.request().url())?.[1];
+      const name = mismatch ? 'Other Child' : selected === '101' ? 'Alex One' : 'Alex Two';
+      await route.fulfill({ contentType: 'text/html', body: `<a href="/calendar">Calendar</a><button>Courses</button>
+        ${selected ? `<div id="child-session-banner">You are viewing as ${name}</div>` : ''}
+        <nav aria-label="Header Navigation"><div data-sgy-sitenav="header-my-account-menu">
+          <button data-sgy-sitenav="nav-trigger" aria-haspopup="true" aria-expanded="false"
+            onclick="document.getElementById('picker').hidden=false;this.setAttribute('aria-expanded','true')">Parent Example</button>
+          <ul id="picker" role="menu" hidden>
+            <li><a role="menuitem" href="/settings/account">Settings</a></li>
+            <li><a role="menuitem" href="/parent/switch_child/101">Alex One<p>Example High School</p></a></li>
+            <li><a role="menuitem" href="/parent/switch_child/202">Alex Two<p>Example High School</p></a></li>
+          </ul>
+        </div></nav>` });
+    });
+    const children = await discoverSchoologyChildren(page);
+    assert.deepEqual(children.map(c => c.displayName), ['Alex One', 'Alex Two']);
+    assert.deepEqual(children.map(c => c.mapping.selectionHref), ['/parent/switch_child/101', '/parent/switch_child/202']);
+    assert.deepEqual(children.map(c => c.mapping.banner), ['You are viewing as Alex One', 'You are viewing as Alex Two']);
+    mismatch = true;
+    await assert.rejects(discoverSchoologyChildren(page), { status: 'child_identity_unverified' });
+  } finally { await browser.close(); }
+});
+
+
+test('modern Schoology selection mappings are validated and preserved through confirmation', async () => {
+  assert.equal(schoologyChildHref('/parent/switch_child/123'), '/parent/switch_child/123');
+  assert.equal(schoologyChildHref('/parent/index?child=123'), '/parent/index?child=123');
+  for (const href of ['/parent/switch_child/123?other=1', '/parent/switch_child/123#other',
+    '/parent/switch_child/not-a-number', '/parent/index?child=123&child=456',
+    'https://outside.example/parent/switch_child/123', 'https://user:secret@app.schoology.com/parent/switch_child/123']) {
+    assert.equal(schoologyChildHref(href), null);
+  }
+  const env = await environment();
+  await call(env, 'connections/schoology/connect', credentials());
+  const job = await claimDiscovery(env, 'schoology', now + 1000);
+  const child = { ...schoologyChild(), mapping: { banner: 'You are viewing as Alex One', selectionHref: '/parent/switch_child/123' } };
+  await completeDiscovery(env, 'schoology', job.id, job.lease, { status: 'ok', children: [child] }, now + 2000);
+  const connection = (await state(env))[1];
+  assert.equal(connection.status, 'ready');
+  assert.equal((await call(env, 'connections/schoology/confirm', { candidateId: connection.candidates[0].id })).status, 200);
+  const mapping = JSON.parse(env.sqlite.prepare('SELECT mapping FROM pilot_child_providers').get().mapping);
+  assert.equal(mapping.selectionHref, '/parent/switch_child/123');
 });

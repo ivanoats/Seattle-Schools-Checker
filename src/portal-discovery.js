@@ -3,13 +3,14 @@ import { sourceSwitchId, clickSourceChildSwitch } from './source-child-navigatio
 
 const text = value => typeof value === 'string' && value.trim() && value.trim().length <= 150;
 const sourceLinks = '#students-list a, a[href^="/guardian/home.html?student="]';
-const schoologyLinks = 'a[href*="/parent/index?child="]';
+const schoologyLinks = 'a[href*="/parent/index?child="], a[href^="/parent/switch_child/"]';
 
 export function schoologyChildHref(href) {
   try {
     const url = new URL(href, sites.schoology.origin);
-    return url.origin === sites.schoology.origin && url.pathname === '/parent/index'
-      && /^\d+$/.test(url.searchParams.get('child') ?? '') && [...url.searchParams.keys()].every(k => k === 'child')
+    if (url.origin !== sites.schoology.origin || url.username || url.password || url.hash) return null;
+    if (/^\/parent\/switch_child\/\d+$/.test(url.pathname) && !url.search) return url.pathname;
+    return url.pathname === '/parent/index' && /^\?child=\d+$/.test(url.search)
       ? url.pathname + url.search : null;
   } catch { return null; }
 }
@@ -82,18 +83,30 @@ export async function discoverSourceChildren(page) {
 export async function discoverSchoologyChildren(page) {
   await page.goto(sites.schoology.start, { waitUntil: 'domcontentloaded' });
   await verifiedPage(page, 'schoology');
-  // Open only a control explicitly associated with a child-list container.
-  const controlIds = await page.locator('[aria-controls][aria-expanded="false"]').evaluateAll(elements => elements.filter(e => {
-    const target = document.getElementById(e.getAttribute('aria-controls'));
-    return e.getClientRects().length && target?.querySelector('a[href*="/parent/index?child="]');
-  }).map(e => e.getAttribute('aria-controls')));
-  if (controlIds.length === 1) {
-    for (const control of await page.locator('[aria-controls][aria-expanded="false"]').all()) {
-      if (await control.getAttribute('aria-controls') === controlIds[0]) await control.click();
+  // The modern header mounts the child list only when its account menu opens.
+  // Use its stable portal marker, never a guessed parent or child name.
+  const accountControl = page.locator('[data-sgy-sitenav="header-my-account-menu"] button[data-sgy-sitenav="nav-trigger"][aria-haspopup]')
+    .filter({ visible: true });
+  const accountCount = await accountControl.count();
+  if (accountCount > 1) throw new CheckError('child_discovery_layout_unverified');
+  if (accountCount === 1) {
+    if (await accountControl.getAttribute('aria-expanded') === 'false') await accountControl.click();
+    try { await page.locator(schoologyLinks).filter({ visible: true }).first().waitFor({ timeout: 5000 }); }
+    catch { throw new CheckError('child_discovery_layout_unverified'); }
+  } else {
+    // Retain support for older headers with an explicitly associated list.
+    const controlIds = await page.locator('[aria-controls][aria-expanded="false"]').evaluateAll((elements, selector) => elements.filter(e => {
+      const target = document.getElementById(e.getAttribute('aria-controls'));
+      return e.getClientRects().length && target?.querySelector(selector);
+    }).map(e => e.getAttribute('aria-controls')), schoologyLinks);
+    if (controlIds.length === 1) {
+      for (const control of await page.locator('[aria-controls][aria-expanded="false"]').all()) {
+        if (await control.getAttribute('aria-controls') === controlIds[0]) await control.click();
+      }
     }
   }
   const links = await page.locator(schoologyLinks).evaluateAll(elements => elements.filter(e => e.getClientRects().length)
-    .map(e => ({ label: e.innerText.trim(), href: e.getAttribute('href') })));
+    .map(e => ({ label: e.innerText.split(/\r?\n/).map(line => line.trim()).find(Boolean) ?? '', href: e.getAttribute('href') })));
   if (!links.length || links.length > 20) throw new CheckError('child_discovery_layout_unverified');
   const children = []; const seen = new Set();
   for (const link of links) {
