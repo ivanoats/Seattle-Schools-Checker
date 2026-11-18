@@ -164,6 +164,11 @@ test('revoking a family invalidates every read and an old invitation cannot rest
   for (const path of ['session', 'children', 'report?childId=child-one']) assert.equal((await call(env, path)).status, 403);
   assert.equal((await call(env, 'selection', { body: { childId: 'child-one' } })).status, 403);
   assert.equal((await call(env, 'invitation', { body: { token: i.token } })).status, 403);
+  const replacement = await invite(env);
+  assert.equal((await call(env, 'invitation', { body: { token: replacement.token } })).status, 200);
+  assert.equal((await call(env, 'session')).status, 200);
+  assert.equal(env.sqlite.prepare('SELECT family_id FROM pilot_members WHERE subject = ?').get(guardian.sub).family_id, replacement.familyId);
+  assert.equal((await call(env, 'invitation', { body: { token: i.token } })).status, 403);
 });
 
 test('selection is remembered only in the authenticated family and unknown children are not enumerable', async () => {

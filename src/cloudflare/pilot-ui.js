@@ -43,6 +43,7 @@ export function pilotClient() {
   let invitation = new URLSearchParams(location.hash.slice(1)).get('invite');
   if (location.hash) history.replaceState(null, '', location.pathname);
   let generation = 0;
+  let selectionWrites = Promise.resolve();
   async function api(path, body) {
     const response = await fetch('/api/pilot/' + path, {
       credentials: 'same-origin', cache: 'no-store',
@@ -84,6 +85,9 @@ export function pilotClient() {
       node('h3', p.provider === 'source' ? 'The Source' : 'Schoology', summary);
       node('p', 'Last verified: ' + date(p.observedAt) + '. Latest attempt: ' + date(p.lastAttemptAt) + '.', summary);
       if (p.lastStatus !== 'ok') node('p', p.lastStatus === 'not_checked' ? 'No check has been recorded.' : 'The latest check did not succeed. Earlier verified records below may be out of date.', summary).className = 'warning';
+      else if (Date.parse(data.report.cutoff) - Date.parse(p.observedAt) > 86400000) {
+        node('p', 'This observation is more than a day old. Deadlines and assignment status may have changed.', summary).className = 'warning';
+      }
     }
     if (source) {
       const grades = section('Semester grades and Source missing work');
@@ -117,7 +121,7 @@ export function pilotClient() {
       const school = section('Schoology: what to check next');
       items('Submitted; awaiting grading', data.report.schoology.awaitingGrade, school);
       items('Due later today', data.report.schoology.dueToday, school);
-      items('Upcoming work', data.report.schoology.upcoming, school);
+      items('Upcoming at last verified check', data.report.schoology.upcoming, school);
       items('Overdue label; confirm turn-in', data.report.schoology.confirmTurnIn, school);
       items('Conflicting deadline information', data.report.schoology.conflictingDeadlines, school);
     }
@@ -129,7 +133,12 @@ export function pilotClient() {
     if (!childId) { status('Choose a child to see saved school records.'); return; }
     status('Loading saved school records…');
     try {
-      if (save) await api('selection', { childId });
+      if (save) {
+        const write = selectionWrites.catch(() => {}).then(() => api('selection', { childId }));
+        selectionWrites = write;
+        await write;
+      }
+      if (version !== generation) return;
       const data = await api('report?childId=' + encodeURIComponent(childId));
       if (version !== generation) return;
       render(data); status('Saved report loaded. Check the verification times below.');

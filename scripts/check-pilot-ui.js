@@ -21,7 +21,7 @@ const errors = [];
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.on('pageerror', error => errors.push(error.message));
-  let selected = null; let mode = 'normal'; let selections = 0;
+  let selected = null; let mode = 'normal'; let selections = 0; let activeWrites = 0; let maxWrites = 0;
   await page.route('**/*', async route => {
     const request = route.request(); const url = new URL(request.url());
     assert.equal(url.origin, origin, 'the app must not load third-party resources');
@@ -34,13 +34,23 @@ try {
     else if (url.pathname.endsWith('/session')) data = { status: 'ok', email: 'parent@example.com', selectedChildId: selected, connectionsAvailable: false };
     else if (url.pathname.endsWith('/children')) data = { status: 'ok', children: mode === 'empty' ? [] : [
       { id: 'alex-one', displayName: 'Alex One' }, { id: 'alex-two', displayName: 'Alex Two' }] };
-    else if (url.pathname.endsWith('/selection')) { selected = request.postDataJSON().childId; selections++; data = { status: 'selected' }; }
+    else if (url.pathname.endsWith('/selection')) {
+      activeWrites++; maxWrites = Math.max(maxWrites, activeWrites);
+      await new Promise(resolve => setTimeout(resolve, request.postDataJSON().childId === 'alex-one' ? 100 : 5));
+      selected = request.postDataJSON().childId; selections++; activeWrites--; data = { status: 'selected' };
+    }
     else if (url.pathname.endsWith('/report')) {
       const childId = url.searchParams.get('childId');
+      const savedSource = source(childId); const savedSchoology = schoology(childId);
+      if (mode === 'old') {
+        savedSource.observedAt = savedSchoology.observedAt = '2026-11-16T19:00:00.000Z';
+        savedSchoology.upcoming = [{ ...item, assignment: 'Past deadline', url: 'https://app.schoology.com/assignment/456',
+          scheduledAt: '2026-11-17T07:59:00.000Z', description: 'Due Monday, November 16, 2026 at 11:59 pm' }];
+      }
       data = { status: 'ok', child: { id: childId, displayName: childId === 'alex-one' ? 'Alex One' : 'Alex Two' },
-        providers: [{ provider: 'source', lastStatus: 'unavailable', observedAt: now, lastAttemptAt: now },
-          { provider: 'schoology', lastStatus: 'ok', observedAt: now, lastAttemptAt: now }],
-        report: buildFamilyReport({ childId, source: source(childId), schoology: schoology(childId), cutoff: now }) };
+        providers: [{ provider: 'source', lastStatus: mode === 'old' ? 'ok' : 'unavailable', observedAt: savedSource.observedAt, lastAttemptAt: savedSource.observedAt },
+          { provider: 'schoology', lastStatus: 'ok', observedAt: savedSchoology.observedAt, lastAttemptAt: savedSchoology.observedAt }],
+        report: buildFamilyReport({ childId, source: savedSource, schoology: savedSchoology, cutoff: now }) };
     } else { status = 404; data = { status: 'not_found' }; }
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
   });
@@ -55,6 +65,10 @@ try {
   await page.getByRole('heading', { name: 'Alex Two’s saved school update' }).waitFor();
   assert.doesNotMatch(await page.locator('#report').innerText(), /Alex One/);
   assert.equal(selections, 2);
+  await page.getByLabel('Whose week are we looking at?').selectOption('alex-one');
+  await page.getByLabel('Whose week are we looking at?').selectOption('alex-two');
+  await page.getByRole('heading', { name: 'Alex Two’s saved school update' }).waitFor();
+  assert.equal(selected, 'alex-two'); assert.equal(maxWrites, 1, 'selection writes must remain ordered');
   await page.reload();
   await page.getByRole('heading', { name: 'Alex Two’s saved school update' }).waitFor();
   assert.equal(await page.locator('body').evaluate(el => el.scrollWidth <= window.innerWidth), true);
@@ -63,6 +77,10 @@ try {
   await page.screenshot({ path: screenshots + '/mobile.png', fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: screenshots + '/desktop.png', fullPage: true });
+  mode = 'old'; await page.reload();
+  await page.getByRole('heading', { name: 'Upcoming at last verified check' }).waitFor();
+  assert.match(await page.locator('#report').innerText(), /more than a day old/);
+  assert.match(await page.locator('#report').innerText(), /Past deadline/);
   mode = 'empty'; await page.reload();
   await page.getByText('Your family account is ready. School connections must be enabled before children can be discovered.').waitFor();
   mode = 'expired'; await page.reload();

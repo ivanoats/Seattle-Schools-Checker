@@ -69,19 +69,27 @@ async function acceptInvite(request, env, identity, now) {
   // Both statements run in one D1 transaction. The SELECT conditions also
   // make replays and concurrent claims safe; no read-then-write grant.
   await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO pilot_members (subject, family_id, email, created_at)
+    env.DB.prepare(`INSERT INTO pilot_members (subject, family_id, email, created_at)
       SELECT ?, i.family_id, i.email, ? FROM pilot_invites i
       JOIN pilot_families f ON f.id = i.family_id
       WHERE i.token_hash = ? AND i.email = ? AND i.expires_at > ?
-        AND (i.claimed_by IS NULL OR i.claimed_by = ?) AND f.revoked_at IS NULL`)
+        AND (i.claimed_by IS NULL OR i.claimed_by = ?) AND f.revoked_at IS NULL
+      ON CONFLICT(subject) DO UPDATE SET family_id = excluded.family_id, email = excluded.email,
+        selected_child_id = NULL, created_at = excluded.created_at
+      WHERE EXISTS (SELECT 1 FROM pilot_families old
+        WHERE old.id = pilot_members.family_id AND old.revoked_at IS NOT NULL)`)
       .bind(identity.subject, timestamp, digest, identity.email, timestamp, identity.subject),
     env.DB.prepare(`UPDATE pilot_invites SET claimed_by = ? WHERE token_hash = ? AND email = ?
       AND expires_at > ? AND (claimed_by IS NULL OR claimed_by = ?)
       AND EXISTS (SELECT 1 FROM pilot_members m WHERE m.subject = ? AND m.family_id = pilot_invites.family_id)`)
       .bind(identity.subject, digest, identity.email, timestamp, identity.subject, identity.subject),
   ]);
-  const invite = (await result(env.DB.prepare('SELECT claimed_by FROM pilot_invites WHERE token_hash = ?').bind(digest)))[0];
-  return invite?.claimed_by === identity.subject && await membership(env.DB, identity)
+  const invite = (await result(env.DB.prepare(`SELECT i.claimed_by, i.family_id FROM pilot_invites i
+    JOIN pilot_families f ON f.id = i.family_id
+    WHERE i.token_hash = ? AND i.email = ? AND i.expires_at > ? AND f.revoked_at IS NULL`)
+    .bind(digest, identity.email, timestamp)))[0];
+  const member = await membership(env.DB, identity);
+  return invite?.claimed_by === identity.subject && member?.family_id === invite.family_id
     ? reply(200, { status: 'accepted' }) : reply(403, { status: 'invitation_not_available' });
 }
 

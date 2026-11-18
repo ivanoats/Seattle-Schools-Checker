@@ -23,6 +23,27 @@ No cloud resources have been changed and no invitations have been sent.
 - Existing runner ingestion, local Keychain, checks and report workflows are
   unchanged. The existing runner is not enrolled in the new membership tables.
 
+## Live inspection on November 18, 2026
+
+- The deployed Cloudflare Worker has one active version from November 12,
+  with D1 and the four existing single-family secrets bound. Its `/app`
+  route returns HTTP 404. The dashboard in this branch is not live.
+- A direct `sqlite_master` read confirms the `provider_checks` table exists;
+  an aggregate query found no recorded provider checks. The new family tables
+  are absent. D1 list metadata incorrectly reported zero tables, so the direct
+  schema query is the stronger evidence.
+- The Access API reports `access.api.error.not_enabled`. Parent sign-in
+  must be enabled/configured before invitations can work.
+- The Oregon EC2 probe instance is stopped and has no IAM instance profile.
+  There are no Oregon Scheduler schedules. The two historical `source-runner`
+  CloudFormation stacks are `DELETE_COMPLETE`; there is no active stack with
+  that name. No instance was started and no infrastructure was changed.
+
+Evidence came from Worker deployment/version records, D1 schema and aggregate
+queries, the Access applications API, EC2 DescribeInstances, Scheduler
+ListSchedules, and CloudFormation ListStacks/DescribeStacks. No credential
+values or raw student observations were retrieved.
+
 ## Required before another household can onboard
 
 | Work | Exit evidence |
@@ -75,6 +96,12 @@ Do not manually enter a real second child's mapping and present it as verified.
 migrations, email-bound invitations, two-family isolation, selection, CSRF,
 revocation and retained observations. `npm test` includes checker regressions.
 `npm run validate` in `worker/` builds without deployment.
+
+`npm run test:pilot-ui` tests phone/desktop layouts, rapid child switching,
+saved selection, old successful observations, unavailable data, submission
+conflicts, empty accounts and expired sign-in using synthetic browser fixtures.
+Screenshots are written outside the repository. No real credentials or
+student records are used by these checks.
 
 - [Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
 - [Access email one-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
