@@ -15,8 +15,10 @@ export const pilotHtml = `<!doctype html><html lang="en"><head>
 <section class="picker"><label for="child">Whose week are we looking at?</label>
 <select id="child"><option value="">Choose a child</option></select>
 <button id="refresh" type="button">Refresh saved report</button></section>
-<section id="connections"><h2>School connections</h2><p>Account connections are not available in this pilot build yet. No school passwords are collected here.</p>
-<p>Once connections are available, you’ll sign in to each parent account and confirm your linked child here.</p></section>
+<section id="connections"><h2>School connections</h2>
+<p>Connect your parent accounts to find their linked children. Confirm the child you want to monitor.</p>
+<p>Your credentials are encrypted in this private service and used by hosted runners to sign in to the selected school portal. Disconnect to delete the saved credentials.</p>
+<p id="connection-status" role="status" aria-live="polite"></p><div id="connection-list"></div></section>
 <div id="report"></div></div>
 <p class="footnote">Source missing flags and Schoology overdue labels mean different things. Check turn-in evidence before redoing work.</p>
 </main></body></html>`;
@@ -35,6 +37,7 @@ a{color:#145b84;text-underline-offset:.2em}:focus-visible{outline:3px solid #a26
 #status{padding:.7rem 0;font-weight:600}li{margin:.5rem 0}table{border-collapse:collapse;width:100%;text-align:left}th,td{padding:.65rem;border-bottom:1px solid #cad9e4;vertical-align:top}
 caption{text-align:left;font-weight:700;padding:.5rem 0}.table-wrap{overflow:auto}.footnote{color:#456079;font-size:.95rem;margin-top:2rem}
 .verified{color:#275c3c}.warning{color:#80501a}[hidden]{display:none!important}@media(max-width:36rem){main{padding-top:1.4rem}section{padding:1rem}.picker{display:block}.picker select,.picker button{display:block;width:100%;margin-top:.8rem}th,td{padding:.5rem}}
+fieldset{border:1px solid #cad9e4;padding:1rem;margin:1rem 0}legend{font-weight:700}form label{display:block;margin-top:.75rem}input{display:block;font:inherit;min-height:3rem;padding:.5rem;border:1px solid #54758d;border-radius:.3rem;width:min(100%,28rem)}form button{margin:1rem .6rem 0 0}form p{font-size:.95rem}.candidate{padding:.8rem 0;border-top:1px solid #cad9e4}.candidate label{display:block}.candidate select{display:block;margin:.5rem 0}.connection{border-top:1px solid #cad9e4;padding-top:1rem;margin-top:1rem}
 `;
 
 export function pilotClient() {
@@ -44,6 +47,7 @@ export function pilotClient() {
   if (location.hash) history.replaceState(null, '', location.pathname);
   let generation = 0;
   let selectionWrites = Promise.resolve();
+  let connectionTimer; let cachedChildren = []; const connectionViews = new Map();
   async function api(path, body) {
     const response = await fetch('/api/pilot/' + path, {
       credentials: 'same-origin', cache: 'no-store',
@@ -58,6 +62,97 @@ export function pilotClient() {
   }
   function section(title) { const el = node('section', '', $('report')); node('h2', title, el); return el; }
   function date(value) { return value ? new Date(value).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' }) + ' Seattle' : 'Not checked'; }
+  const connectionMessage = reason => ({
+    credentials_required: 'Enter your parent username and password.',
+    try_again_later: 'Please wait a minute before trying another sign-in.',
+    discovery_in_progress: 'A sign-in check is already in progress.',
+    discovery_expired: 'The check timed out. Try again when the connection is available.',
+    child_discovery_layout_unverified: 'We signed in but could not verify the child menu. The pilot organizer needs to check this portal layout.',
+    child_identity_unverified: 'We could not verify which child was selected. No child was added.',
+    child_identity_ambiguous: 'The portal shows ambiguous child identities. No child was added.',
+    interactive_sso_required: 'This account needs a district sign-in step that the hosted pilot does not support yet.',
+    connection_not_available: 'This portal connection is not available yet.',
+  }[reason] || 'Sign-in or child discovery needs attention. Check your parent credentials. If the portal requires MFA, CAPTCHA or account setup, contact the pilot organizer; this pilot cannot complete those steps.');
+
+  async function reloadChildren() {
+    const current = $('child').value;
+    cachedChildren = (await api('children')).children;
+    $('child').replaceChildren(new Option('Choose a child', ''));
+    for (const child of cachedChildren) $('child').add(new Option(child.displayName, child.id));
+    $('child').value = cachedChildren.some(c => c.id === current) ? current : '';
+  }
+  function connectionCard(connection) {
+    const provider = connection.provider;
+    const title = provider === 'source' ? 'The Source' : 'Schoology';
+    let view = connectionViews.get(provider);
+    const signature = JSON.stringify([connection, connection.candidates.length ? cachedChildren : []]);
+    if (view?.signature === signature) return;
+    const root = document.createElement('div'); root.className = 'connection';
+    if (view) view.element.replaceWith(root); else $('connection-list').append(root);
+    connectionViews.set(provider, { element: root, signature });
+    node('h3', title, root);
+    const pending = ['queued', 'discovering'].includes(connection.status);
+    node('p', ({ not_connected: 'Not connected', queued: 'Waiting to check your account…', discovering: 'Signing in and checking linked children…',
+      ready: 'Account verified. Confirm a linked child below.', attention: connectionMessage(connection.reason), disconnected: 'Disconnected. Saved credentials were deleted.' })[connection.status], root);
+    if (!connection.available) node('p', 'This portal is not available for new connections yet. No password is collected here.', root);
+    if (connection.available && !pending) {
+      const holder = connection.status === 'ready' ? node('details', '', root) : root;
+      if (holder !== root) node('summary', 'Reconnect account', holder);
+      const form = node('form', '', holder); form.method = 'post'; form.action = '/api/pilot/connections/' + provider + '/connect';
+      form.setAttribute('aria-label', 'Connect ' + title);
+      const fieldset = node('fieldset', '', form); node('legend', title + ' parent sign-in', fieldset);
+      const usernameId = provider + '-username'; const passwordId = provider + '-password';
+      const label = node('label', provider === 'schoology' ? 'Parent email' : 'Parent username', fieldset); label.htmlFor = usernameId;
+      const username = node('input', '', fieldset); username.id = usernameId; username.name = 'username'; username.type = provider === 'schoology' ? 'email' : 'text';
+      username.autocomplete = 'username'; username.autocapitalize = 'none'; username.spellcheck = false; username.required = true; username.maxLength = 254;
+      const plabel = node('label', 'Password', fieldset); plabel.htmlFor = passwordId;
+      const password = node('input', '', fieldset); password.id = passwordId; password.name = 'password'; password.type = 'password'; password.autocomplete = 'current-password'; password.required = true; password.maxLength = 2048;
+      const submit = node('button', 'Find linked children', fieldset); submit.type = 'submit';
+      form.addEventListener('submit', async event => {
+        event.preventDefault(); submit.disabled = true;
+        const input = { username: username.value, password: password.value }; password.value = '';
+        try { await api('connections/' + provider + '/connect', input); $('connection-status').textContent = 'Account check requested. This can take a few minutes.'; await loadConnections(); }
+        catch (error) { $('connection-status').textContent = connectionMessage(error.message); }
+        finally { input.password = ''; password.value = ''; submit.disabled = false; }
+      });
+    }
+    for (const candidate of connection.candidates) {
+      const row = node('div', '', root); row.className = 'candidate'; node('strong', candidate.displayName, row);
+      if (candidate.linkedChildId) { node('p', 'Added to your family’s child list.', row); continue; }
+      const label = node('label', 'How should we add ' + candidate.displayName + '?', row);
+      const select = node('select', '', row); select.id = 'candidate-' + candidate.id; label.htmlFor = select.id;
+      select.add(new Option('Add as a new child', ''));
+      for (const child of cachedChildren) select.add(new Option('Same child as ' + child.displayName, child.id));
+      node('p', 'Choose an existing child only if you recognize both portal records as the same person. Names alone are not matched automatically.', row);
+      const button = node('button', 'Confirm child', row); button.type = 'button';
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const saved = await api('connections/' + provider + '/confirm', { candidateId: candidate.id, childId: select.value || undefined });
+          await reloadChildren(); $('child').value = saved.childId; await loadReport(true); await loadConnections();
+          $('connection-status').textContent = candidate.displayName + ' was added. You can choose this child above.';
+        } catch { $('connection-status').textContent = 'We could not confirm this child. Refresh the account check and try again.'; }
+        finally { button.disabled = false; }
+      });
+    }
+    if (connection.status !== 'not_connected' && connection.status !== 'disconnected') {
+      const disconnect = node('button', 'Disconnect ' + title, root); disconnect.type = 'button';
+      disconnect.addEventListener('click', async () => {
+        disconnect.disabled = true;
+        try { await api('connections/' + provider + '/disconnect', {}); await loadConnections(); }
+        catch { $('connection-status').textContent = 'We could not disconnect this account. Try again.'; }
+        finally { disconnect.disabled = false; }
+      });
+    }
+  }
+  async function loadConnections() {
+    clearTimeout(connectionTimer);
+    try {
+      const data = await api('connections');
+      for (const connection of data.connections) connectionCard(connection);
+      if (data.connections.some(c => ['queued', 'discovering'].includes(c.status))) connectionTimer = setTimeout(loadConnections, 3000);
+    } catch { $('connection-status').textContent = 'Connection status is unavailable. Refresh the page before entering credentials.'; }
+  }
   function items(title, list, parent) {
     node('h3', title, parent);
     if (list === null || list === undefined) { node('p', 'This information is unavailable.', parent); return; }
@@ -149,11 +244,13 @@ export function pilotClient() {
       if (invitation) { $('welcome').hidden = false; status('Confirm your invitation to continue.'); return; }
       const session = await api('session');
       const data = await api('children');
+      cachedChildren = data.children;
       $('account').textContent = 'Signed in as ' + session.email;
       $('family').hidden = false;
+      await loadConnections();
       $('child').replaceChildren(new Option('Choose a child', ''));
       for (const child of data.children) $('child').add(new Option(child.displayName, child.id));
-      if (!data.children.length) { status('Your family account is ready. School connections must be enabled before children can be discovered.'); return; }
+      if (!data.children.length) { status('Your family account is ready. Connect a school account below to find your linked children.'); return; }
       $('child').value = data.children.some(c => c.id === session.selectedChildId) ? session.selectedChildId : '';
       await loadReport();
     } catch (error) {

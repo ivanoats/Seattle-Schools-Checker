@@ -18,6 +18,7 @@ export function configuredChild(config, childId) {
     if (!source && !schoology) throw new Error('invalid_child_config');
     if (source) {
       if (!nonempty(source.tabLabel) || !nonempty(source.studentHeading)
+          || (source.tabId !== undefined && !/^[a-zA-Z][a-zA-Z0-9_-]{0,100}$/.test(source.tabId))
           || (source.tabHref !== undefined && !validSourceHref(source.tabHref))
           || (source.term !== undefined && !nonempty(source.term))
           || sourceHeadings.has(source.studentHeading)) {
@@ -27,6 +28,7 @@ export function configuredChild(config, childId) {
     }
     if (schoology) {
       if (!nonempty(schoology.banner) || !schoology.banner.startsWith('You are viewing as ')
+          || (schoology.selectionHref !== undefined && !/^\/parent\/index\?child=\d+$/.test(schoology.selectionHref))
           || schoologyBanners.has(schoology.banner)) {
         throw new Error('invalid_child_config');
       }

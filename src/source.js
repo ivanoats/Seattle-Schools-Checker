@@ -5,7 +5,7 @@ export function parseAttendance(text) {
     .filter(Boolean).map(m => ({ period: m[1], date: `${m[4]}-${m[2]}-${m[3]}`, code: m[5] }));
 }
 export async function readSource(page, child) {
-  const { tabLabel, tabHref, studentHeading } = child.providers.source;
+  const { tabLabel, tabHref, tabId, studentHeading } = child.providers.source;
   const verifyHeading = async label => {
     if (new URL(page.url()).origin !== sites.source.origin) throw new CheckError('source_child_tab_unverified');
     await page.getByRole('heading', { name: `${label}: ${studentHeading}`, exact: true }).waitFor();
@@ -15,6 +15,7 @@ export async function readSource(page, child) {
   const matches = [];
   for (const tab of tabs) {
     const href = await tab.getAttribute('href');
+    if (tabId && await tab.getAttribute('id') !== tabId) continue;
     // Existing PowerSchool tabs can switch the selected student via an event handler.
     if (!tabHref || (href && new URL(href, page.url()).href === sites.source.origin + tabHref)) matches.push(tab);
   }

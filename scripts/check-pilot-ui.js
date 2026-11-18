@@ -34,6 +34,8 @@ try {
     else if (url.pathname.endsWith('/session')) data = { status: 'ok', email: 'parent@example.com', selectedChildId: selected, connectionsAvailable: false };
     else if (url.pathname.endsWith('/children')) data = { status: 'ok', children: mode === 'empty' ? [] : [
       { id: 'alex-one', displayName: 'Alex One' }, { id: 'alex-two', displayName: 'Alex Two' }] };
+    else if (url.pathname.endsWith('/connections')) data = { status: 'ok', connections: ['source', 'schoology'].map(provider =>
+      ({ provider, available: false, status: 'not_connected', reason: null, updatedAt: null, candidates: [] })) };
     else if (url.pathname.endsWith('/selection')) {
       activeWrites++; maxWrites = Math.max(maxWrites, activeWrites);
       await new Promise(resolve => setTimeout(resolve, request.postDataJSON().childId === 'alex-one' ? 100 : 5));
@@ -82,7 +84,7 @@ try {
   assert.match(await page.locator('#report').innerText(), /more than a day old/);
   assert.match(await page.locator('#report').innerText(), /Past deadline/);
   mode = 'empty'; await page.reload();
-  await page.getByText('Your family account is ready. School connections must be enabled before children can be discovered.').waitFor();
+  await page.getByText('Your family account is ready. Connect a school account below to find your linked children.').waitFor();
   mode = 'expired'; await page.reload();
   await page.getByText('Your sign-in has expired. Open the app again to receive a new login code.').waitFor();
   assert.deepEqual(errors, []);

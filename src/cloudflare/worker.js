@@ -1,11 +1,15 @@
 import { handleLatestChecks, handleSourceIngest } from './ingest.js';
-import { handlePilot, privateHeaders } from './pilot.js';
+import { handlePilot, privateHeaders, readBody } from './pilot.js';
 import { pilotHtml, pilotCss, pilotClient } from './pilot-ui.js';
+import { handleDiscoveryRunner } from './connections.js';
+import { runSchoologyDiscovery } from './schoology-discovery.js';
 
 export default {
-  fetch(request, env) {
+  fetch(request, env, ctx) {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith('/api/pilot/')) return handlePilot(request, env);
+    const runner = pathname.match(/^\/v1\/discovery\/(source|schoology)\/(claim|complete)$/);
+    if (runner) return handleDiscoveryRunner(request, env, runner[1], runner[2], req => readBody(req, 65536));
     const assets = { '/app': [pilotHtml, 'text/html'], '/app.css': [pilotCss, 'text/css'],
       '/app.js': [`(${pilotClient.toString()})();`, 'text/javascript'] };
     if (request.method === 'GET' && Object.hasOwn(assets, pathname)) {
@@ -16,5 +20,8 @@ export default {
     if (request.method === 'POST' && pathname === '/v1/ingest/source') return handleSourceIngest(request, env);
     if (request.method === 'GET' && pathname === '/v1/checks/latest') return handleLatestChecks(request, env);
     return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  },
+  scheduled(event, env, ctx) {
+    ctx.waitUntil(runSchoologyDiscovery(env));
   },
 };

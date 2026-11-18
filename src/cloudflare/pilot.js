@@ -1,6 +1,7 @@
 import { authorized } from './ingest.js';
 import { accessConfig, accessIdentity } from './pilot-auth.js';
 import { buildFamilyReport } from '../core/family-report.js';
+import { connectionAvailable, connectionSummary, submitConnection, disconnectConnection, confirmCandidate } from './connections.js';
 
 export const privateHeaders = {
   'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
@@ -11,7 +12,7 @@ const result = async statement => (await statement.all()).results;
 const hash = async text => Array.from(new Uint8Array(await crypto.subtle.digest(
   'SHA-256', new TextEncoder().encode(text))), byte => byte.toString(16).padStart(2, '0')).join('');
 
-async function readBody(request) {
+export async function readBody(request, maxBytes = 4096) {
   if (!request.headers.get('Content-Type')?.startsWith('application/json')) throw new Error('invalid_request');
   const reader = request.body?.getReader();
   if (!reader) throw new Error('invalid_request');
@@ -21,7 +22,7 @@ async function readBody(request) {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 4096) { await reader.cancel(); throw new Error('invalid_request'); }
+      if (size > maxBytes) { await reader.cancel(); throw new Error('invalid_request'); }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
@@ -110,7 +111,19 @@ export async function handlePilot(request, env, options = {}) {
     if (!member) return reply(403, { status: 'invitation_required' });
     if (url.pathname === '/api/pilot/session' && request.method === 'GET') {
       return reply(200, { status: 'ok', email: identity.email, selectedChildId: member.selected_child_id,
-        connectionsAvailable: false });
+        connectionsAvailable: ['source', 'schoology'].some(provider => connectionAvailable(env, provider)) });
+    }
+    if (url.pathname === '/api/pilot/connections' && request.method === 'GET') {
+      return reply(200, { status: 'ok', connections: await connectionSummary(env, member, now) });
+    }
+    const connectionRoute = url.pathname.match(/^\/api\/pilot\/connections\/(source|schoology)\/(connect|disconnect|confirm)$/);
+    if (connectionRoute && request.method === 'POST') {
+      const [, provider, action] = connectionRoute;
+      if (action === 'disconnect') return await disconnectConnection(env, member, provider, now);
+      const input = await readBody(request);
+      if (action === 'confirm') return await confirmCandidate(env, member, provider, input);
+      const response = await submitConnection(env, member, provider, input, now);
+      return response;
     }
     if (url.pathname === '/api/pilot/children' && request.method === 'GET') {
       const children = await result(env.DB.prepare('SELECT id, display_name AS displayName FROM pilot_children WHERE family_id = ? ORDER BY display_name, id').bind(member.family_id));

@@ -18,8 +18,10 @@ No cloud resources have been changed and no invitations have been sent.
   membership, including when two families have overlapping child IDs.
 - Failed attempts preserve previous verified observations, displayed with the
   original verification time and a failed-latest-check notice.
-- School connections are explicitly unavailable. No passwords are collected
-  and no Connect button claims that discovery works.
+- Account connection and child discovery are implemented behind per-provider
+  readiness flags. Parents enter credentials, receive verified child choices and
+  explicitly confirm cross-portal matches. See [account connections](account-connections.md)
+  for encryption, runner setup, tests and remaining live verification gates.
 - Existing runner ingestion, local Keychain, checks and report workflows are
   unchanged. The existing runner is not enrolled in the new membership tables.
 
@@ -50,10 +52,10 @@ values or raw student observations were retrieved.
 | --- | --- |
 | Verify live AWS/Cloudflare state | Authenticated deployment status and approved deployed smoke test |
 | Deploy Access and invitation flow | Parent opens an invitation and receives an email code from a phone |
-| Family-scoped provider accounts | Encrypted credentials, revocation/deletion, isolated sessions and per-account sign-in limits |
-| Source discovery on AWS | Guardian signs in; only their linked children are discovered and full identities verified |
-| Schoology on Browser Run | Worker binding, isolated browser contexts, child discovery/selection, reconnect and challenge handling |
-| Trusted child discovery ingestion | Persist verified provider mappings; never trust arbitrary mappings from the browser |
+| Family-scoped provider accounts (implemented, deployment pending) | Encrypted credentials, revocation/deletion, isolated sessions and sign-in limits tested synthetically |
+| Source discovery on AWS (implemented, live verification pending) | Deploy the discovery service; verify the production child menu and each full identity |
+| Schoology on Browser Run (implemented, live verification pending) | Deploy the binding/consumer; verify production child menu and unsupported challenge behavior |
+| Trusted child discovery ingestion (implemented) | Verify deployed provider tokens, leases and identity-bound confirmation |
 | Multi-family collection | Replace single-family ingest configuration with family/account-scoped job claims and runner authorization |
 | Hosted schedule and reports | School-calendar-aware jobs, comparisons and private PDFs independent of local Codex |
 | Second household acceptance | Parent connects both services, selects her son, sees verified records and revokes access without help |
@@ -87,7 +89,7 @@ Do these steps only after deployment approval. Parents do not execute them.
    through a scoped operator database action; membership reads fail immediately.
    Future provider adapters must also revoke that family's credentials/jobs.
 
-Use synthetic fixtures for child-list testing until trusted discovery exists.
+Use synthetic fixtures until live discovery is verified on both hosts.
 Do not manually enter a real second child's mapping and present it as verified.
 
 ## Validation

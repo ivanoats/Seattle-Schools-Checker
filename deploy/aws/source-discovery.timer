@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll the Source parent-connection queue while this host is running
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=15s
+Unit=source-discovery.service
+
+[Install]
+WantedBy=timers.target
