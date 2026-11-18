@@ -16,6 +16,12 @@ export default defineConfig({
       CHILD_IDS: bindings.secret(),
       INGEST_TOKEN: bindings.secret(),
       STATUS_TOKEN: bindings.secret(),
+      // Access application identity and canonical origin for the invite-only UI.
+      // Optional during the existing single-family runner pilot.
+      ACCESS_TEAM_DOMAIN: bindings.secret(),
+      ACCESS_AUD: bindings.secret(),
+      APP_ORIGIN: bindings.secret(),
+      PILOT_ADMIN_TOKEN: bindings.secret(),
     },
   },
 });

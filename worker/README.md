@@ -50,5 +50,9 @@ This builds the Worker without uploading it.
 3. Check that `GET /v1/checks/latest` returns 404 without a token and
    an empty list with the status token.
 
-The schedule, the Schoology check and the dashboard are not part of
-this Worker yet.
+The schedule and Schoology runner are not part of this Worker yet.
+The `/app` dashboard and `/api/pilot/*` invitation/membership routes require
+Access configuration, migration 0002 and trusted provider discovery before
+another parent can onboard. School password entry remains disabled. See the
+[pilot status and deployment gates](../docs/architecture/web-pilot-status.md).
+Install root dependencies as well as Worker dependencies before building.
