@@ -92,6 +92,11 @@ Parameter Store prefix. The discovery host role should read only those two
 settings (plus required Session Manager permissions); it does not need the
 encryption key or other families' existing Parameter Store passwords.
 
+Use `sh deploy/aws/install.sh <git-ref> discovery` to install without enabling
+the legacy scheduled shutdown service. The installer creates the private service
+home; systemd grants that state directory write access under `ProtectSystem=strict`.
+Smoke test stock Chrome under the deployed service protections before polling.
+
 Install `source-discovery.service` and `source-discovery.timer`, make
 `run-discovery.sh` executable and enable the timer only after approval. The
 instance must remain running during onboarding availability. The old
@@ -103,7 +108,7 @@ namespace support rather than adding `--no-sandbox`.
 
 Cloud deployment, secrets, Access activation, EC2 startup/IAM and invitation
 delivery are separate approved operations. The first private rollout is recorded
-in `web-pilot-status.md`; Source remains gated pending AWS setup.
+in `web-pilot-status.md`; both providers are enabled for the first live test.
 
 ## Validation and remaining launch gates
 

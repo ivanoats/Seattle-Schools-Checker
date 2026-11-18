@@ -41,17 +41,24 @@ sign-in and child discovery still need verification before another family joins.
   password input. Schoology account connection is enabled for the private live
   test; successful unattended authentication and production child discovery
   are not yet verified for this pipeline.
-- Source account connection remains disabled. AWS rejected `iam:CreateRole`
-  for the connected operator. The Oregon EC2 probe instance remains stopped
-  without an instance profile, and no discovery runner is installed or claimed
-  to be ready. An administrator must provision its scoped execution role and
-  instance profile before setup can continue.
+- The AWS operator permission blocker was resolved. The Oregon probe host now
+  runs a dedicated discovery service and 15-second polling timer. Its instance
+  role has Session Manager support and an explicit deny on reading Parameter
+  Store values outside the two discovery settings. Those settings contain only
+  the app origin and machine token, never portal credentials.
+- Stock Chrome loaded the Source login form with HTTP 200 using the service
+  account, Chromium sandbox and the same systemd protections as deployment.
+  An authenticated queue poll returned `idle`. The runner received a private
+  writable home to fix an observed Chrome crash; no sandbox was disabled.
+  Both provider connection forms are now enabled for the first private test.
+- The instance remains running during pilot onboarding. The legacy power-off
+  service and old scheduled run mode are not enabled on this host.
 - No school passwords or student records were read during deployment. The
   existing local checks and scheduled report workflow were not changed.
 
 Evidence: migration records, Worker deployment and secret-binding names,
 Access application/policy responses, signed-out HTTP smoke tests, Browser Run
-login-form rendering, and the AWS API permission denial. Deployment does not
+login-form rendering, and AWS installation, sandbox probe and service/timer verification. Deployment does not
 establish successful account connection or recurring multi-family reporting.
 
 ## Required before another household can onboard
@@ -77,7 +84,7 @@ Do these steps only after deployment approval. Parents do not execute them.
 
 1. Install dependencies at the repository root and in `worker/`. The root
    package supplies the JWT verifier to both the tests and Worker build.
-2. Apply migration `0002_pilot_families.sql` after migration 0001.
+2. Apply migrations 0001–0003 in order.
 3. Set `APP_ORIGIN` to the exact HTTPS app origin, `ACCESS_TEAM_DOMAIN` to
    the team hostname ending in `.cloudflareaccess.com`, and `ACCESS_AUD` to
    the Access application audience. Missing config leaves family APIs closed.
@@ -116,3 +123,8 @@ student records are used by these checks.
 - [Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
 - [Access email one-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
 - [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/)
+
+The first rollout passed 58 tests and both browser suites. SonarCloud,
+GitGuardian and Socket checks passed after the temporary-directory and startup
+promise findings were fixed. DeepSource JavaScript still reports quality
+findings; PR #5 is not represented as fully green or ready to merge.
