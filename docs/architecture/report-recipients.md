@@ -22,7 +22,13 @@ performing confirmation, not the oldest household member, a portal username, or 
 email/recipient field in the request. Discovery alone never creates recipients.
 The connection screen explains the default before confirmation. The standard
 recipient editor loads the saved address and its revision, so parents can edit it
-or clear the list to stop reports.
+or clear the list to stop reports. If another portal initializes settings for an
+already-selected child, confirmation returns only the newly inserted default and
+its revision. The editor reconciles that snapshot, showing the default when it
+was unchanged and preserving unsaved edits. Pending loads/saves defer reconciliation;
+an already loaded saved revision is never replaced by the snapshot. Explicit edit
+and save intent is tracked even for an unchanged blank field, so a default cannot
+replace an attempted empty opt-out during a concurrent save.
 
 Child confirmation, the verified portal mapping and the initial recipient row
 share one D1 transaction. Each statement rechecks the active family, current
@@ -36,7 +42,9 @@ if no settings row has ever been saved.
 
 Unsupported sign-in email syntax does not block a valid school connection. No
 invalid default is stored; the confirmation response marks recipient setup as
-required and the UI tells the parent to review the recipient editor. Parents can
+required only if settings are still absent after confirmation. An existing valid
+list or empty opt-out needs no warning. The UI tells a parent with missing settings
+to review the recipient editor. Parents can
 then choose a supported report address. Normal address validation still applies.
 No schema migration or AWS sender change is required.
 

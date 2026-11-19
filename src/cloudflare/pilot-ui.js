@@ -150,7 +150,9 @@ export function pilotClient() {
         button.disabled = true;
         try {
           const saved = await api(`connections/${provider}/confirm`, { candidateId: candidate.id, childId: select.value || undefined });
-          await reloadChildren(); byId('child').value = saved.childId; await loadReport(true); await loadConnections();
+          await reloadChildren(); byId('child').value = saved.childId; await loadReport(true);
+          applyRecipientDefault(saved.childId, saved.initializedRecipients);
+          await loadConnections();
           byId('connection-status').textContent = `${candidate.displayName} was added. You can choose this child above.`;
           if (saved.recipientSetupRequired) byId('connection-status').textContent += ' Your sign-in email could not be used for reports. Review Report recipients to choose an address.';
         } catch (error) {
@@ -247,6 +249,23 @@ export function pilotClient() {
       items('Conflicting deadline information', data.report.schoology.conflictingDeadlines, school);
     }
   }
+  function applyRecipientDefault(childId, defaults) {
+    const view = recipientView;
+    if (!defaults || !view || view.childId !== childId) return;
+    if (!view.loaded || view.saving) { view.pendingDefault = defaults; return; }
+    view.pendingDefault = null;
+    // The server supplies only the revision it just inserted. Never adopt an
+    // unrelated newer edit or overwrite an already-loaded saved revision.
+    if (view.revision !== null) return;
+    const edited = view.hasDraft || byId('recipient-emails').value !== view.savedValue;
+    const value = defaults.recipients.join('\n');
+    view.revision = defaults.revision; view.savedValue = value; view.conflict = false;
+    if (!edited) byId('recipient-emails').value = value;
+    byId('recipient-save').disabled = false;
+    byId('recipient-status').textContent = edited
+      ? 'Your sign-in email was saved as the default. Your unsaved edits are kept; save them to replace it.'
+      : 'Default recipient loaded. You can edit or clear the list.';
+  }
   function recipientMessage(error) {
     return ({ invalid_email_address: 'Check each email address. Use addresses only, without names or extra text.',
       too_many_recipients: 'Enter no more than 10 email addresses.',
@@ -283,12 +302,17 @@ export function pilotClient() {
       if (recipientView !== view || byId('child').value !== childId) return;
       view.revision = data.revision; view.loaded = true; renderDelivery(data.delivery);
       byId('recipient-emails').value = data.recipients.join('\n');
+      view.savedValue = byId('recipient-emails').value; view.hasDraft = false;
       byId('recipient-status').textContent = data.recipients.length ? 'Saved recipients loaded.' : 'No recipients saved for this child.';
       byId('recipient-fields').disabled = false;
+      if (view.pendingDefault) applyRecipientDefault(childId, view.pendingDefault);
     } catch {
       if (recipientView === view) byId('recipient-status').textContent = 'We could not load saved recipients. Reload the saved list before editing.';
     }
   }
+  byId('recipient-emails').addEventListener('input', () => {
+    if (recipientView?.loaded) recipientView.hasDraft = true;
+  });
   byId('recipient-form').addEventListener('submit', async event => {
     event.preventDefault();
     const view = recipientView;
@@ -296,12 +320,14 @@ export function pilotClient() {
     const recipients = byId('recipient-emails').value.split(/[,;\n]+/).map(value => value.trim()).filter(Boolean);
     byId('recipient-fields').disabled = true;
     byId('recipient-reload').disabled = true;
+    view.saving = true; view.hasDraft = true;
     byId('recipient-status').textContent = 'Saving recipients…';
     try {
       const data = await api('report-recipients', { childId: view.childId, recipients, revision: view.revision });
       if (recipientView !== view) return;
       view.revision = data.revision;
       byId('recipient-emails').value = data.recipients.join('\n');
+      view.savedValue = byId('recipient-emails').value; view.hasDraft = false;
       renderDelivery(data.delivery);
       byId('recipient-status').textContent = data.delivery?.status === 'enabled'
         ? 'Recipients saved. Future reports will use this list.' : 'Recipients saved. Email delivery is not enabled yet.';
@@ -312,8 +338,10 @@ export function pilotClient() {
       }
     } finally {
       if (recipientView === view) {
+        view.saving = false;
         byId('recipient-fields').disabled = !view.loaded;
         byId('recipient-save').disabled = Boolean(view.conflict); byId('recipient-reload').disabled = false;
+        if (view.pendingDefault) applyRecipientDefault(view.childId, view.pendingDefault);
       }
     }
   });

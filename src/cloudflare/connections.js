@@ -130,7 +130,8 @@ export async function confirmCandidate(env, member, provider, input, now = Date.
       AND c.status = 'ready' AND c.revision = k.revision AND f.revoked_at IS NULL
       AND EXISTS (SELECT 1 FROM pilot_members m WHERE m.family_id=c.family_id AND m.subject=? AND m.email=?)`;
   const guardParams = [candidate.id, member.family_id, provider, member.subject, member.email];
-  await env.DB.batch([
+  const recipientRevision = crypto.randomUUID();
+  const changes = await env.DB.batch([
     env.DB.prepare(`INSERT OR IGNORE INTO pilot_children (family_id, id, display_name)
       SELECT ?, ?, ? WHERE EXISTS (${guard})`).bind(member.family_id, childId, candidate.display_name, ...guardParams),
     env.DB.prepare(`INSERT INTO pilot_child_providers (family_id, child_id, provider, connection_id, revision, remote_id, mapping)
@@ -147,13 +148,19 @@ export async function confirmCandidate(env, member, provider, input, now = Date.
       SELECT k.family_id,k.id,?,?,? FROM pilot_children k WHERE k.family_id=? AND k.id=? AND EXISTS (${guard})
         AND EXISTS (SELECT 1 FROM pilot_child_providers p WHERE p.family_id=k.family_id AND p.child_id=k.id
           AND p.provider=? AND p.connection_id=? AND p.revision=? AND p.remote_id=?)`)
-      .bind(JSON.stringify(recipients),crypto.randomUUID(),iso(now),member.family_id,childId,...guardParams,
+      .bind(JSON.stringify(recipients),recipientRevision,iso(now),member.family_id,childId,...guardParams,
         provider,candidate.connection_id,candidate.revision,candidate.remote_id)] : []),
   ]);
-  const saved = (await rows(env.DB.prepare(`SELECT child_id FROM pilot_child_providers WHERE family_id = ? AND child_id = ? AND provider = ?
-    AND connection_id = ? AND revision = ? AND remote_id = ?`)
+  const saved = (await rows(env.DB.prepare(`SELECT p.child_id,r.revision AS recipient_revision FROM pilot_child_providers p
+    LEFT JOIN pilot_report_recipients r ON r.family_id=p.family_id AND r.child_id=p.child_id
+    WHERE p.family_id = ? AND p.child_id = ? AND p.provider = ?
+    AND p.connection_id = ? AND p.revision = ? AND p.remote_id = ?`)
     .bind(member.family_id, childId, provider, candidate.connection_id, candidate.revision, candidate.remote_id)))[0];
-  return saved ? reply(200, { status: 'linked', childId, recipientSetupRequired: recipients === null }) : reply(409, { status: 'selection_conflict' });
+  const last = changes.at(-1);
+  const initialized = recipients !== null && (last?.meta?.changes ?? last?.changes) === 1;
+  if (!saved) return reply(409, { status: 'selection_conflict' });
+  const initializedRecipients = initialized ? { recipients, revision: recipientRevision } : null;
+  return reply(200, { status: 'linked', childId, recipientSetupRequired: saved.recipient_revision === null, initializedRecipients });
 }
 
 export async function claimDiscovery(env, provider, now = Date.now()) {

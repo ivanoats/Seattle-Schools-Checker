@@ -442,6 +442,7 @@ test('each confirmed child defaults to its authenticated parent email, never por
     const saved=env.sqlite.prepare('SELECT * FROM pilot_report_recipients WHERE family_id=? AND child_id=?').get('family-1',result.childId);
     assert.deepEqual(JSON.parse(saved.recipients),['parent1@example.com']);
     assert.ok(saved.revision);assert.equal(saved.updated_at,new Date(now).toISOString());
+    assert.deepEqual(result.initializedRecipients,{recipients:['parent1@example.com'],revision:saved.revision});
     const read=await (await call(env,`report-recipients?childId=${result.childId}`)).json();
     assert.equal(read.revision,saved.revision);
     assert.equal((await call(env,'report-recipients',{childId:result.childId,revision:read.revision,recipients:['partner@example.com']})).status,200);
@@ -508,4 +509,38 @@ test('membership removed just before confirmation cannot add a default or a chil
   assert.equal((await call(env,'connections/source/confirm',{candidateId:candidate.id})).status,409);
   assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_children').get().n,0);
   assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_report_recipients').get().n,0);
+});
+
+
+test('a legacy child with no settings receives an initialization snapshot for its cached editor', async () => {
+  const env=await environment();const source=(await discoverForParent(env,'source'))[0];
+  const child=await (await call(env,'connections/source/confirm',{candidateId:source.id})).json();
+  env.sqlite.prepare('DELETE FROM pilot_report_recipients').run();
+  const empty=await (await call(env,`report-recipients?childId=${child.childId}`)).json();assert.equal(empty.revision,null);
+  const school=(await discoverForParent(env,'schoology'))[0];
+  const result=await (await call(env,'connections/schoology/confirm',{candidateId:school.id,childId:child.childId})).json();
+  const saved=env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get();
+  assert.deepEqual(result.initializedRecipients,{recipients:['parent1@example.com'],revision:saved.revision});
+  assert.equal(result.recipientSetupRequired,false);
+  assert.equal((await call(env,'report-recipients',{childId:child.childId,revision:result.initializedRecipients.revision,recipients:[]})).status,200);
+});
+
+test('unsupported sign-in addresses do not request setup when an edited list or empty opt-out exists', async () => {
+  for(const recipients of [[],['partner@example.com']]) {
+    const env=await environment();const source=(await discoverForParent(env,'source'))[0];
+    const child=await (await call(env,'connections/source/confirm',{candidateId:source.id})).json();
+    const settings=await (await call(env,`report-recipients?childId=${child.childId}`)).json();
+    await call(env,'report-recipients',{childId:child.childId,revision:settings.revision,recipients});
+    const before=env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get();
+    const school=(await discoverForParent(env,'schoology'))[0];
+    const email='parent1@例子.test';env.sqlite.prepare('UPDATE pilot_members SET email=? WHERE subject=?').run(email,'parent-1');
+    const jwt=await new SignJWT({email}).setProtectedHeader({alg:'RS256'}).setSubject('parent-1').setAudience('pilot')
+      .setIssuer('https://example.cloudflareaccess.com').setIssuedAt(now/1000).setExpirationTime(now/1000+3600).sign(keys.privateKey);
+    const response=await handlePilot(new Request(`${origin}/api/pilot/connections/schoology/confirm`,{method:'POST',
+      headers:{'Cf-Access-Jwt-Assertion':jwt,'Content-Type':'application/json',Origin:origin,'X-Pilot-Request':'1'},
+      body:JSON.stringify({candidateId:school.id,childId:child.childId})}),env,options);
+    const result=await response.json();assert.equal(response.status,200);
+    assert.equal(result.recipientSetupRequired,false);assert.equal(result.initializedRecipients,null);
+    assert.deepEqual(env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get(),before);
+  }
 });

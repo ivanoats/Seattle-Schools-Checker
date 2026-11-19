@@ -37,10 +37,15 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
+  let heldRecipientSave = null;
   await page.route('**/*', async route => {
     const browserRequest = route.request(); assert.equal(new URL(browserRequest.url()).origin, origin);
     const request = new Request(browserRequest.url(), { method: browserRequest.method(), headers: { ...browserRequest.headers(), 'Cf-Access-Jwt-Assertion': jwt },
       ...(['GET', 'HEAD'].includes(browserRequest.method()) ? {} : { body: browserRequest.postData() }) });
+    if (heldRecipientSave && !heldRecipientSave.seen && request.method === 'POST'
+        && new URL(browserRequest.url()).pathname === '/api/pilot/report-recipients') {
+      const held = heldRecipientSave; held.seen = true; held.started.resolve(); await held.release.promise;
+    }
     const response = new URL(browserRequest.url()).pathname.startsWith('/api/')
       ? await handlePilot(request, env, { keySet: keys.publicKey }) : await worker.fetch(request, env);
     return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
@@ -92,6 +97,49 @@ try {
   await page.getByText('Disconnected. Saved credentials were deleted.').waitFor();
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM pilot_children').get().n, 1);
   assert.equal(sqlite.prepare("SELECT credentials FROM pilot_connections WHERE provider='schoology'").get().credentials, null);
+  for (const scenario of [{ draft: '' }, { draft: 'draft@example.com' }, { draft: '', savingEmpty: true }]) {
+    const { draft } = scenario;
+    // A pre-feature child has no settings row, but its empty editor is cached.
+    sqlite.prepare('DELETE FROM pilot_report_recipients').run();
+    await page.reload();
+    await page.waitForFunction(() => !document.getElementById('recipient-fields').disabled);
+    assert.equal(await page.locator('#recipient-emails').inputValue(), '');
+    if (draft) await page.locator('#recipient-emails').fill(draft);
+    // Simulate an elapsed reconnect cooldown in this synthetic legacy fixture.
+    sqlite.prepare("UPDATE pilot_connections SET submitted_at=? WHERE provider='schoology'").run(new Date(Date.now()-61000).toISOString());
+    const form = page.getByRole('form', { name: 'Connect Schoology' });
+    await form.getByLabel('Parent email').fill('school-parent@example.com');
+    await form.getByLabel('Password').fill('synthetic-schoology-password');
+    await form.getByRole('button', { name: 'Find linked children' }).click();
+    await page.getByText('Waiting to check your account…').waitFor();
+    const retry = await claimDiscovery(env, 'schoology');
+    await completeDiscovery(env, 'schoology', retry.id, retry.lease, { status: 'ok', children: [
+      { remoteId: 'two', displayName: 'Alex Two', mapping: { banner: 'You are viewing as Alex Two', selectionHref: '/parent/index?child=2' } },
+    ] }); retry.credentials.password = '';
+    const candidate = page.locator('.connection').filter({ has: page.getByRole('heading', { name: 'Schoology', exact: true }) }).locator('.candidate');
+    await candidate.getByLabel('How should we add Alex Two?').selectOption({ label: 'Same child as Alex Two' });
+    if (scenario.savingEmpty) {
+      heldRecipientSave = { started: Promise.withResolvers(), release: Promise.withResolvers(), seen: false };
+      await page.locator('#recipient-save').click();
+      await heldRecipientSave.started.promise;
+    }
+    await candidate.getByRole('button', { name: 'Confirm child' }).click();
+    await page.getByText('Alex Two was added. You can choose this child above.').waitFor();
+    if (scenario.savingEmpty) {
+      heldRecipientSave.release.resolve();
+      await page.getByText('Your sign-in email was saved as the default. Your unsaved edits are kept; save them to replace it.', { exact: true }).waitFor();
+      heldRecipientSave = null;
+    }
+    const expected = scenario.savingEmpty ? '' : draft || 'parent@example.com';
+    assert.equal(await page.locator('#recipient-emails').inputValue(), expected);
+    const next = scenario.savingEmpty ? '' : draft || 'updated@example.com';
+    await page.locator('#recipient-emails').fill(next);
+    await page.locator('#recipient-save').click();
+    await page.getByText('Recipients saved. Email delivery is not enabled yet.', { exact: true }).waitFor();
+    assert.deepEqual(JSON.parse(sqlite.prepare('SELECT recipients FROM pilot_report_recipients').get().recipients), next ? [next] : []);
+    await page.getByRole('button', { name: 'Disconnect Schoology', exact: true }).click();
+    await page.getByText('Disconnected. Saved credentials were deleted.').waitFor();
+  }
   assert.deepEqual(errors, []);
   assert.equal(await page.locator('body').evaluate(el => el.scrollWidth <= innerWidth), true);
 
