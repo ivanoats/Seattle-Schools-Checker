@@ -72,8 +72,11 @@ export async function submitConnection(env, member, provider, input, now) {
         AND pilot_connections.revision = ?`)
       .bind(connection.id, member.family_id, provider, connection.revision, encrypted, timestamp, timestamp, member.family_id, iso(now - 60000), existing?.revision ?? ''),
     env.DB.prepare(`INSERT INTO pilot_discovery_jobs (id, connection_id, revision, state, created_at, expires_at)
-      SELECT ?, id, revision, 'queued', ?, ? FROM pilot_connections WHERE id = ? AND revision = ?`)
-      .bind(jobId, timestamp, iso(now + 300000), connection.id, connection.revision),
+      SELECT ?, id, revision, 'queued', ?, strftime('%Y-%m-%dT%H:%M:%fZ',
+        MAX(?, COALESCE((SELECT MAX(lease_expires_at) FROM pilot_check_jobs
+          WHERE connection_id = pilot_connections.id AND state = 'running'), ?)), '+5 minutes')
+      FROM pilot_connections WHERE id = ? AND revision = ?`)
+      .bind(jobId, timestamp, timestamp, timestamp, connection.id, connection.revision),
   ]);
   const won = (await rows(env.DB.prepare('SELECT id FROM pilot_discovery_jobs WHERE id = ?').bind(jobId))).length;
   if (!changes || !won) return reply(409, { status: 'discovery_in_progress' });
@@ -146,8 +149,10 @@ export async function claimDiscovery(env, provider, now = Date.now()) {
     WHERE id = (SELECT j.id FROM pilot_discovery_jobs j JOIN pilot_connections c ON c.id = j.connection_id
       JOIN pilot_families f ON f.id = c.family_id WHERE j.state = 'queued' AND j.expires_at >= ?
       AND c.provider = ? AND c.revision = j.revision AND c.status = 'queued' AND f.revoked_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM pilot_check_jobs busy WHERE busy.connection_id = c.id
+        AND busy.state = 'running' AND busy.lease_expires_at > ?)
       ORDER BY j.created_at, j.id LIMIT 1) AND state = 'queued' RETURNING id, connection_id, revision`)
-    .bind(leaseHash, iso(now + 120000), iso(now + 120000), provider));
+    .bind(leaseHash, iso(now + 120000), iso(now + 120000), provider, iso(now)));
   if (!claimed.length) return null;
   const job = claimed[0];
   const connection = (await rows(env.DB.prepare(`SELECT c.* FROM pilot_connections c JOIN pilot_families f ON f.id = c.family_id

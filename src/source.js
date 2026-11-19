@@ -9,7 +9,8 @@ export async function readSource(page, child) {
   const { tabLabel, tabHref, tabId, tabSwitchId, studentHeading } = child.providers.source;
   const verifyHeading = async label => {
     if (new URL(page.url()).origin !== sites.source.origin) throw new CheckError('source_child_tab_unverified');
-    await page.getByRole('heading', { name: `${label}: ${studentHeading}`, exact: true }).waitFor();
+    try { await page.getByRole('heading', { name: `${label}: ${studentHeading}`, exact: true }).waitFor(); }
+    catch { throw new CheckError('source_child_identity_unverified'); }
   };
   await page.goto(sites.source.origin + '/guardian/home.html', { waitUntil: 'domcontentloaded' });
   const tabs = await page.getByRole('link', { name: tabLabel, exact: true }).all();
@@ -39,7 +40,7 @@ export async function readSource(page, child) {
     if (!href) throw new CheckError('source_layout_changed');
     await page.goto(new URL(href, page.url()).href, { waitUntil: 'domcontentloaded' });
     const heading = page.getByRole('heading', { name: new RegExp(`: ${studentHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) });
-    await heading.waitFor();
+    try { await heading.waitFor(); } catch { throw new CheckError('source_child_identity_unverified'); }
     return parseAttendance(await page.locator('#content-main').innerText());
   }
   const absences = await attendance(absenceURL);

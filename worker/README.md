@@ -50,8 +50,10 @@ This builds the Worker without uploading it.
 3. Check that `GET /v1/checks/latest` returns 404 without a token and
    an empty list with the status token.
 
-The daily report schedule is not part of this Worker yet. A separate scheduled
-consumer processes Schoology onboarding discovery jobs using Browser Run.
+The minute schedule processes Schoology onboarding jobs and, when enabled,
+recurring school checks. Apply migration 0004 and configure the hosted collection
+flag before enabling it. See [recurring hosted checks](../docs/architecture/recurring-hosted-checks.md)
+for the Seattle schedule, calendar limits, AWS update and rollback.
 The `/app` dashboard and `/api/pilot/*` routes require Access configuration,
 migrations 0002/0003 and deployed discovery runners before another parent can
 onboard. Password entry is enabled separately per provider after verification. See the

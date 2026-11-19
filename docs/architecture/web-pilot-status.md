@@ -3,8 +3,8 @@
 ## Implementation
 
 This branch contains the invitation/dashboard foundation and account connection
-pipeline. The first private Cloudflare deployment is configured; live parent
-sign-in and child discovery still need verification before another family joins.
+pipeline and recurring collection. The first private household has verified live
+connections on both providers. Another household has not yet been invited.
 
 - `/app` provides a responsive child picker, saved provider check times,
   semester grades, Source missing work, attendance, and Schoology evidence
@@ -131,3 +131,23 @@ The corrected rollout passed 64 tests and both browser suites. SonarCloud,
 GitGuardian and Socket checks passed after the temporary-directory and startup
 promise findings were fixed. DeepSource JavaScript still reports quality
 findings; PR #5 is not represented as fully green or ready to merge.
+
+
+## Recurring collection acceptance, November 18, 2026
+
+Migration 0004 and the recurring collector were enabled on the existing private
+pilot. The AWS Oregon timer and Cloudflare minute schedule both claimed and
+completed live jobs. Schoology saved all four summary sections as available.
+Source saved grades/attendance and verified assignment tables for the six taught
+subjects after allowing the exact browser-generated assignment lookup. Advisory’s
+assignment table and two non-academic support rows remained explicitly unknown;
+they were not interpreted as zero missing work. No school record was changed.
+Temporary request diagnostics captured only request method, destination/path and
+payload field names/types, then were removed. No parent credential values,
+query values, cookies, raw school responses or student work were exported.
+
+The follow-up review adds migration 0005 to distinguish a queued job from a real
+attempt and prevent duplicate same-day sign-ins. See the
+[recurring-check design and deployment sequence](recurring-hosted-checks.md).
+Existing local email/PDF automation is unchanged. Actual school-calendar
+exclusions and second-household acceptance are still separate pilot gates.
