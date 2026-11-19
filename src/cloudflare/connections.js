@@ -91,7 +91,7 @@ export async function disconnectConnection(env, member, provider, now) {
       (SELECT id FROM pilot_connections WHERE family_id = ? AND provider = ?)`).bind(member.family_id, provider),
     env.DB.prepare(`DELETE FROM pilot_candidates WHERE connection_id IN
       (SELECT id FROM pilot_connections WHERE family_id = ? AND provider = ?)`).bind(member.family_id, provider),
-    env.DB.prepare(`DELETE FROM pilot_child_providers WHERE family_id = ? AND provider = ?`).bind(member.family_id, provider),
+    env.DB.prepare("DELETE FROM pilot_child_providers WHERE family_id = ? AND provider = ?").bind(member.family_id, provider),
   ]);
   return reply(200, { status: 'disconnected' });
 }
@@ -144,16 +144,16 @@ export async function claimDiscovery(env, provider, now = Date.now()) {
   const lease = randomToken(); const leaseHash = await digest(lease);
   const claimed = await rows(env.DB.prepare(`UPDATE pilot_discovery_jobs SET state = 'running', lease_hash = ?, lease_expires_at = ?
     WHERE id = (SELECT j.id FROM pilot_discovery_jobs j JOIN pilot_connections c ON c.id = j.connection_id
-      JOIN pilot_families f ON f.id = c.family_id WHERE j.state = 'queued' AND j.expires_at > ?
+      JOIN pilot_families f ON f.id = c.family_id WHERE j.state = 'queued' AND j.expires_at >= ?
       AND c.provider = ? AND c.revision = j.revision AND c.status = 'queued' AND f.revoked_at IS NULL
       ORDER BY j.created_at, j.id LIMIT 1) AND state = 'queued' RETURNING id, connection_id, revision`)
-    .bind(leaseHash, iso(now + 120000), iso(now), provider));
+    .bind(leaseHash, iso(now + 120000), iso(now + 120000), provider));
   if (!claimed.length) return null;
   const job = claimed[0];
   const connection = (await rows(env.DB.prepare(`SELECT c.* FROM pilot_connections c JOIN pilot_families f ON f.id = c.family_id
     WHERE c.id = ? AND c.revision = ? AND f.revoked_at IS NULL`).bind(job.connection_id, job.revision)))[0];
   if (!connection) return null;
-  await env.DB.prepare(`UPDATE pilot_connections SET status = 'discovering', updated_at = ? WHERE id = ? AND revision = ?`)
+  await env.DB.prepare("UPDATE pilot_connections SET status = 'discovering', updated_at = ? WHERE id = ? AND revision = ?")
     .bind(iso(now), connection.id, connection.revision).run();
   return { id: job.id, lease, provider, expiresAt: iso(now + 120000),
     credentials: await openCredentials(connection.credentials, connection, env.CONNECTION_KEY) };
@@ -211,7 +211,7 @@ export async function completeDiscovery(env, provider, jobId, lease, output, now
         AND c.status IN ('ready', 'attention') AND c.updated_at = ? AND f.revoked_at IS NULL)`)
     .bind(...params, iso(now)));
   await env.DB.batch(statements);
-  return (await rows(env.DB.prepare(`SELECT id FROM pilot_discovery_jobs WHERE id = ? AND state = 'done' AND lease_hash = ?`)
+  return (await rows(env.DB.prepare("SELECT id FROM pilot_discovery_jobs WHERE id = ? AND state = 'done' AND lease_hash = ?")
     .bind(jobId, params[1]))).length === 1;
 }
 

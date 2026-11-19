@@ -94,6 +94,69 @@ async function acceptInvite(request, env, identity, now) {
     ? reply(200, { status: 'accepted' }) : reply(403, { status: 'invitation_not_available' });
 }
 
+function providerMetadata({ provider, lastStatus, lastAttemptAt, lastReason, observedAt }) {
+  return { provider, lastStatus, lastAttemptAt, lastReason, observedAt };
+}
+
+async function selectChild(request, env, identity, member) {
+  const { childId } = await readBody(request);
+  if (typeof childId !== 'string' || childId.length > 64) return reply(400, { status: 'invalid_request' });
+  const rows = await result(env.DB.prepare(`UPDATE pilot_members SET selected_child_id = ? WHERE subject = ? AND family_id = ?
+    AND EXISTS (SELECT 1 FROM pilot_children WHERE family_id = ? AND id = ?) RETURNING selected_child_id`)
+    .bind(childId, identity.subject, member.family_id, member.family_id, childId));
+  return rows.length ? reply(200, { status: 'selected', childId }) : reply(404, { status: 'child_not_found' });
+}
+
+async function familyReport(url, env, member, now) {
+  const childId = url.searchParams.get('childId');
+  const child = (await result(env.DB.prepare('SELECT id, display_name AS displayName FROM pilot_children WHERE family_id = ? AND id = ?')
+    .bind(member.family_id, childId)))[0];
+  if (!child) return reply(404, { status: 'child_not_found' });
+  const providers = await Promise.all(['source', 'schoology'].map(async provider => {
+    const query = `SELECT status, reason, attempted_at, observed_at, observation FROM provider_checks
+      WHERE family_id = ? AND child_id = ? AND provider = ?`;
+    const latest = (await result(env.DB.prepare(`${query} ORDER BY attempted_at DESC, received_at DESC LIMIT 1`)
+      .bind(member.family_id, childId, provider)))[0];
+    const verified = (await result(env.DB.prepare(`${query} AND status = 'ok' AND observed_at <= ? ORDER BY attempted_at DESC, received_at DESC LIMIT 1`)
+      .bind(member.family_id, childId, provider, new Date(now).toISOString())))[0];
+    return { provider, lastStatus: latest?.status ?? 'not_checked', lastAttemptAt: latest?.attempted_at ?? null,
+      lastReason: latest?.reason ?? null, observedAt: verified?.observed_at ?? null,
+      observation: verified ? JSON.parse(verified.observation) : null };
+  }));
+  const observations = Object.fromEntries(providers.map(p => [p.provider, p.observation]));
+  const report = buildFamilyReport({ childId, ...observations, cutoff: new Date(now).toISOString() });
+  return reply(200, { status: 'ok', child, providers: providers.map(providerMetadata), report });
+}
+
+async function connectionAction(request, env, member, route, now) {
+  const [, provider, action] = route;
+  if (action === 'disconnect') return disconnectConnection(env, member, provider, now);
+  const input = await readBody(request);
+  if (action === 'confirm') return confirmCandidate(env, member, provider, input);
+  return submitConnection(env, member, provider, input, now);
+}
+
+async function memberRoute(request, env, identity, member, url, now) {
+  if (url.pathname === '/api/pilot/session' && request.method === 'GET') {
+    return reply(200, { status: 'ok', email: identity.email, selectedChildId: member.selected_child_id,
+      connectionsAvailable: ['source', 'schoology'].some(provider => connectionAvailable(env, provider)) });
+  }
+  if (url.pathname === '/api/pilot/connections' && request.method === 'GET') {
+    return reply(200, { status: 'ok', connections: await connectionSummary(env, member, now) });
+  }
+  const connectionRoute = url.pathname.match(/^\/api\/pilot\/connections\/(source|schoology)\/(connect|disconnect|confirm)$/);
+  if (connectionRoute && request.method === 'POST') {
+    return connectionAction(request, env, member, connectionRoute, now);
+  }
+  if (url.pathname === '/api/pilot/children' && request.method === 'GET') {
+    const children = await result(env.DB.prepare('SELECT id, display_name AS displayName FROM pilot_children WHERE family_id = ? ORDER BY display_name, id').bind(member.family_id));
+    return reply(200, { status: 'ok', children });
+  }
+  if (url.pathname === '/api/pilot/selection' && request.method === 'POST') return selectChild(request, env, identity, member);
+  if (url.pathname === '/api/pilot/report' && request.method === 'GET') return familyReport(url, env, member, now);
+  return reply(404, { status: 'not_found' });
+}
+
 export async function handlePilot(request, env, options = {}) {
   const url = new URL(request.url);
   const now = options.now ?? Date.now();
@@ -109,55 +172,7 @@ export async function handlePilot(request, env, options = {}) {
     if (url.pathname === '/api/pilot/invitation' && request.method === 'POST') return await acceptInvite(request, env, identity, now);
     const member = await membership(env.DB, identity);
     if (!member) return reply(403, { status: 'invitation_required' });
-    if (url.pathname === '/api/pilot/session' && request.method === 'GET') {
-      return reply(200, { status: 'ok', email: identity.email, selectedChildId: member.selected_child_id,
-        connectionsAvailable: ['source', 'schoology'].some(provider => connectionAvailable(env, provider)) });
-    }
-    if (url.pathname === '/api/pilot/connections' && request.method === 'GET') {
-      return reply(200, { status: 'ok', connections: await connectionSummary(env, member, now) });
-    }
-    const connectionRoute = url.pathname.match(/^\/api\/pilot\/connections\/(source|schoology)\/(connect|disconnect|confirm)$/);
-    if (connectionRoute && request.method === 'POST') {
-      const [, provider, action] = connectionRoute;
-      if (action === 'disconnect') return await disconnectConnection(env, member, provider, now);
-      const input = await readBody(request);
-      if (action === 'confirm') return await confirmCandidate(env, member, provider, input);
-      const response = await submitConnection(env, member, provider, input, now);
-      return response;
-    }
-    if (url.pathname === '/api/pilot/children' && request.method === 'GET') {
-      const children = await result(env.DB.prepare('SELECT id, display_name AS displayName FROM pilot_children WHERE family_id = ? ORDER BY display_name, id').bind(member.family_id));
-      return reply(200, { status: 'ok', children });
-    }
-    if (url.pathname === '/api/pilot/selection' && request.method === 'POST') {
-      const { childId } = await readBody(request);
-      if (typeof childId !== 'string' || childId.length > 64) return reply(400, { status: 'invalid_request' });
-      const rows = await result(env.DB.prepare(`UPDATE pilot_members SET selected_child_id = ? WHERE subject = ? AND family_id = ?
-        AND EXISTS (SELECT 1 FROM pilot_children WHERE family_id = ? AND id = ?) RETURNING selected_child_id`)
-        .bind(childId, identity.subject, member.family_id, member.family_id, childId));
-      return rows.length ? reply(200, { status: 'selected', childId }) : reply(404, { status: 'child_not_found' });
-    }
-    if (url.pathname === '/api/pilot/report' && request.method === 'GET') {
-      const childId = url.searchParams.get('childId');
-      const child = (await result(env.DB.prepare('SELECT id, display_name AS displayName FROM pilot_children WHERE family_id = ? AND id = ?')
-        .bind(member.family_id, childId)))[0];
-      if (!child) return reply(404, { status: 'child_not_found' });
-      const providers = await Promise.all(['source', 'schoology'].map(async provider => {
-        const query = `SELECT status, reason, attempted_at, observed_at, observation FROM provider_checks
-          WHERE family_id = ? AND child_id = ? AND provider = ?`;
-        const latest = (await result(env.DB.prepare(`${query} ORDER BY attempted_at DESC, received_at DESC LIMIT 1`)
-          .bind(member.family_id, childId, provider)))[0];
-        const verified = (await result(env.DB.prepare(`${query} AND status = 'ok' ORDER BY attempted_at DESC, received_at DESC LIMIT 1`)
-          .bind(member.family_id, childId, provider)))[0];
-        return { provider, lastStatus: latest?.status ?? 'not_checked', lastAttemptAt: latest?.attempted_at ?? null,
-          lastReason: latest?.reason ?? null, observedAt: verified?.observed_at ?? null,
-          observation: verified ? JSON.parse(verified.observation) : null };
-      }));
-      const observations = Object.fromEntries(providers.map(p => [p.provider, p.observation]));
-      const report = buildFamilyReport({ childId, ...observations, cutoff: new Date(now).toISOString() });
-      return reply(200, { status: 'ok', child, providers: providers.map(({ observation, ...p }) => p), report });
-    }
-    return reply(404, { status: 'not_found' });
+    return await memberRoute(request, env, identity, member, url, now);
   } catch {
     // Never return exception messages, request bodies, or student records in errors.
     return reply(400, { status: 'request_failed' });

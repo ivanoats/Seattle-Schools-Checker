@@ -25,7 +25,7 @@ const schoologyChild = () => ({ remoteId: 'parent-child-123', displayName: 'Alex
 async function environment() {
   const sqlite = new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys = ON');
   for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql']) {
-    sqlite.exec(await readFile(new URL('../worker/migrations/' + name, import.meta.url), 'utf8'));
+    sqlite.exec(await readFile(new URL(`../worker/migrations/${name}`, import.meta.url), 'utf8'));
   }
   for (const n of [1, 2]) {
     sqlite.prepare('INSERT INTO pilot_families (id, created_at) VALUES (?, ?)').run(`family-${n}`, new Date(now).toISOString());
@@ -33,7 +33,8 @@ async function environment() {
       .run(`parent-${n}`, `family-${n}`, `parent${n}@example.com`, new Date(now).toISOString());
   }
   const statement = (sql, values = []) => ({ bind: (...args) => statement(sql, args),
-    all: async () => ({ results: sqlite.prepare(sql).all(...values) }), run: async () => sqlite.prepare(sql).run(...values) });
+    all: () => Promise.resolve({ results: sqlite.prepare(sql).all(...values) }),
+    run: () => Promise.resolve(sqlite.prepare(sql).run(...values)) });
   return { sqlite, APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'pilot',
     CONNECTION_KEY: 'a'.repeat(64), SOURCE_DISCOVERY_TOKEN: 'b'.repeat(64), SCHOOLOGY_DISCOVERY_TOKEN: 'c'.repeat(64),
     SOURCE_CONNECTIONS_ENABLED: 'true', SCHOOLOGY_CONNECTIONS_ENABLED: 'true', BROWSER: {},
@@ -47,20 +48,20 @@ async function call(env, path, body, parent = 1, time = now) {
   const jwt = await new SignJWT({ email: `parent${parent}@example.com` }).setProtectedHeader({ alg: 'RS256' })
     .setSubject(`parent-${parent}`).setAudience('pilot').setIssuer('https://example.cloudflareaccess.com')
     .setIssuedAt(now / 1000).setExpirationTime(now / 1000 + 3600).sign(keys.privateKey);
-  return handlePilot(new Request(origin + '/api/pilot/' + path, { method: body ? 'POST' : 'GET',
+  return handlePilot(new Request(`${origin}/api/pilot/${path}`, { method: body ? 'POST' : 'GET',
     headers: { 'Cf-Access-Jwt-Assertion': jwt, 'Content-Type': 'application/json', Origin: origin, 'X-Pilot-Request': '1' },
     ...(body ? { body: JSON.stringify(body) } : {}) }), env, { ...options, now: time });
 }
 async function state(env, parent = 1, time = now) { return (await (await call(env, 'connections', null, parent, time)).json()).connections; }
 
 test('credential encryption is randomized and bound to family, service and credential revision', async () => {
-  const c = { id: 'connection', family_id: 'family-1', provider: 'source', revision: 'one' };
-  const encrypted = await sealCredentials(credentials(), c, 'a'.repeat(64));
+  const connectionBinding = { id: 'connection', family_id: 'family-1', provider: 'source', revision: 'one' };
+  const encrypted = await sealCredentials(credentials(), connectionBinding, 'a'.repeat(64));
   assert.doesNotMatch(encrypted, /parent@example|synthetic-password/);
-  assert.notEqual(encrypted, await sealCredentials(credentials(), c, 'a'.repeat(64)));
-  assert.deepEqual(await openCredentials(encrypted, c, 'a'.repeat(64)), credentials());
+  assert.notEqual(encrypted, await sealCredentials(credentials(), connectionBinding, 'a'.repeat(64)));
+  assert.deepEqual(await openCredentials(encrypted, connectionBinding, 'a'.repeat(64)), credentials());
   for (const change of [{ family_id: 'family-2' }, { provider: 'schoology' }, { revision: 'two' }, { id: 'other' }]) {
-    await assert.rejects(openCredentials(encrypted, { ...c, ...change }, 'a'.repeat(64)));
+    await assert.rejects(openCredentials(encrypted, { ...connectionBinding, ...change }, 'a'.repeat(64)));
   }
 });
 
@@ -106,7 +107,7 @@ test('disconnect invalidates in-flight results, wipes credentials and forbids ol
 test('jobs expire without another login; wrong-provider tokens and leases cannot complete them', async () => {
   const env = await environment();
   await call(env, 'connections/source/connect', credentials());
-  const wrong = await handleDiscoveryRunner(new Request(origin + '/v1/discovery/source/claim', {
+  const wrong = await handleDiscoveryRunner(new Request(`${origin}/v1/discovery/source/claim`, {
     method: 'POST', headers: { Authorization: `Bearer ${env.SCHOOLOGY_DISCOVERY_TOKEN}` } }), env, 'source', 'claim', readBody, now);
   assert.equal(wrong.status, 404);
   const job = await claimDiscovery(env, 'source', now + 1000);
@@ -168,20 +169,20 @@ test('a parent submission expires only that family’s jobs', async () => {
 
 test('runner errors are sanitized, credentials cleared and machine transport refuses redirects', async () => {
   const input = credentials();
-  const result = await discoverAccount('source', input, async () => { throw new Error('synthetic-password must never appear'); });
+  const result = await discoverAccount('source', input, () => Promise.reject(new Error('synthetic-password must never appear')));
   assert.deepEqual(result, { status: 'attention', reason: 'discovery_failed' });
   assert.deepEqual(input, { username: '', password: '' });
   for (const invalid of ['http://pilot.example', 'https://user:password@pilot.example', 'https://pilot.example/other', 'https://pilot.example/?token=x']) {
     assert.throws(() => discoveryEndpoint(invalid, 'claim'));
   }
   const calls = [];
-  const output = await runSourceDiscovery({ origin, token: 'b'.repeat(64), launch: async () => { throw new Error('synthetic-password'); },
-    request: async (url, options) => {
+  const output = await runSourceDiscovery({ origin, token: 'b'.repeat(64), launch: () => Promise.reject(new Error('synthetic-password')),
+    request: (url, options) => {
       calls.push({ url, ...options });
       assert.equal(options.redirect, 'error');
-      return Response.json(url.endsWith('/claim') ? { status: 'claimed', job: { id: crypto.randomUUID(),
+      return Promise.resolve(Response.json(url.endsWith('/claim') ? { status: 'claimed', job: { id: crypto.randomUUID(),
         provider: 'source', lease: 'd'.repeat(64), expiresAt: new Date(Date.now() + 120000).toISOString(), credentials: credentials() } }
-        : { status: 'recorded' });
+        : { status: 'recorded' }));
     } });
   assert.equal(output.status, 'recorded');
   assert.equal(calls.length, 2);
@@ -273,7 +274,9 @@ test('Source discovers ID-less child links through the rendered student-switch f
 
 
 test('Source switch mappings survive confirmation; arbitrary script hrefs and invalid IDs are rejected', async () => {
+  // Literal portal URL used only as parser input; never evaluated. skipcq
   assert.equal(sourceSwitchId('javascript:switchStudent(123);'), '123');
+  // Malformed portal URLs must remain literal rejection fixtures. skipcq
   for (const href of ['javascript:other(123);', 'javascript:switchStudent(123);other();', 'https://bad.example/']) {
     assert.equal(sourceSwitchId(href), null);
   }
@@ -367,5 +370,36 @@ test('Schoology discovery loads its external header under the real read policy',
     const children = await discoverSchoologyChildren(page);
     assert.equal(children[0].displayName, 'Alex One');
     assert.ok(headerLoads > 0, 'the external script must load for the account menu to exist');
+  } finally { await browser.close(); }
+});
+
+test('discovery claims retain the full lease window before the original job expiry', async () => {
+  for (const provider of ['source', 'schoology']) {
+    const env = await environment();
+    await call(env, `connections/${provider}/connect`, credentials());
+    const late = await claimDiscovery(env, provider, now + 270000);
+    assert.equal(late, null, 'a late claim must not advertise a lease past the job deadline');
+    const timelyEnv = await environment();
+    await call(timelyEnv, `connections/${provider}/connect`, credentials());
+    const timely = await claimDiscovery(timelyEnv, provider, now + 179999);
+    assert.ok(timely);
+    assert.equal(Date.parse(timely.expiresAt), now + 299999);
+    assert.equal(await completeDiscovery(timelyEnv, provider, timely.id, timely.lease,
+      { status: 'ok', children: provider === 'source' ? [sourceChild()] : [schoologyChild()] }, now + 220000), true);
+  }
+});
+
+test('Source resolves relative child links against the current document', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.route('https://ps.seattleschools.org/**', async route => {
+      const id = new URL(route.request().url()).searchParams.get('student') ?? '1';
+      await route.fulfill({ contentType: 'text/html', body: `<button id="btnLogout">Sign out</button>
+        <div id="students-list"><a href="home.html?student=1">Alex</a><a href="?student=2">Alex</a></div>
+        <h1>Grades: ${id === '1' ? 'One' : 'Two'}, Alex</h1>` });
+    });
+    const children = await discoverSourceChildren(page);
+    assert.deepEqual(children.map(child => child.displayName), ['Alex One', 'Alex Two']);
   } finally { await browser.close(); }
 });

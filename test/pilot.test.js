@@ -15,7 +15,7 @@ const options = { keySet: keys.publicKey, now };
 const guardian = { sub: 'guardian-one', email: 'one@example.com' };
 const other = { sub: 'guardian-two', email: 'two@example.com' };
 
-async function token(identity = guardian, claims = {}, key = keys.privateKey) {
+function token(identity = guardian, claims = {}, key = keys.privateKey) {
   return new SignJWT({ email: identity.email, ...claims }).setProtectedHeader({ alg: 'RS256' })
     .setSubject(identity.sub).setIssuer(issuer).setAudience('pilot').setIssuedAt(now / 1000)
     .setExpirationTime(now / 1000 + 3600).sign(key);
@@ -24,7 +24,7 @@ async function token(identity = guardian, claims = {}, key = keys.privateKey) {
 async function environment() {
   const sqlite = new DatabaseSync(':memory:');
   for (const file of ['0001_provider_checks.sql', '0002_pilot_families.sql']) {
-    sqlite.exec(await readFile(new URL('../worker/migrations/' + file, import.meta.url), 'utf8'));
+    sqlite.exec(await readFile(new URL(`../worker/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const statement = (sql, values = []) => ({
     bind: (...args) => statement(sql, args),
@@ -40,7 +40,7 @@ async function environment() {
 }
 
 async function call(env, path, { identity = guardian, body, jwt, ...headers } = {}) {
-  return handlePilot(new Request(origin + '/api/pilot/' + path, {
+  return handlePilot(new Request(`${origin}/api/pilot/${path}`, {
     ...(body !== undefined ? { method: 'POST', body: JSON.stringify(body) } : {}),
     headers: { 'Cf-Access-Jwt-Assertion': jwt ?? await token(identity), 'Content-Type': 'application/json',
       Origin: origin, 'X-Pilot-Request': '1', ...headers },
@@ -95,13 +95,13 @@ test('invitations are email-bound, hashed, expiring, one-time grants with idempo
 
 test('two families and overlapping child IDs cannot read or select each other’s records', async () => {
   const env = await environment();
-  const a = await join(env); const b = await join(env, other);
-  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(a.familyId, 'same-child', 'Alex One');
-  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(b.familyId, 'same-child', 'Alex Two');
-  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(b.familyId, 'only-two', 'Sibling Two');
+  const firstFamily = await join(env); const secondFamily = await join(env, other);
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(firstFamily.familyId, 'same-child', 'Alex One');
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(secondFamily.familyId, 'same-child', 'Alex Two');
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(secondFamily.familyId, 'only-two', 'Sibling Two');
   assert.deepEqual((await (await call(env, 'children')).json()).children, [{ id: 'same-child', displayName: 'Alex One' }]);
-  assert.equal((await call(env, 'selection', { body: { childId: 'only-two', familyId: b.familyId } })).status, 404);
-  assert.equal((await call(env, 'report?childId=only-two&familyId=' + b.familyId)).status, 404);
+  assert.equal((await call(env, 'selection', { body: { childId: 'only-two', familyId: secondFamily.familyId } })).status, 404);
+  assert.equal((await call(env, `report?childId=only-two&familyId=${secondFamily.familyId}`)).status, 404);
   assert.equal((await call(env, 'selection', { body: { childId: 'same-child' } })).status, 200);
   assert.equal((await (await call(env, 'session')).json()).selectedChildId, 'same-child');
   assert.equal((await (await call(env, 'session', { identity: other })).json()).selectedChildId, null);
@@ -109,7 +109,7 @@ test('two families and overlapping child IDs cannot read or select each other’
   assert.equal(report.child.displayName, 'Alex One');
   assert.equal(report.report.source, null);
   assert.equal(report.providers[0].lastStatus, 'not_checked');
-  env.sqlite.prepare('UPDATE pilot_families SET revoked_at = ? WHERE id = ?').run(new Date(now).toISOString(), a.familyId);
+  env.sqlite.prepare('UPDATE pilot_families SET revoked_at = ? WHERE id = ?').run(new Date(now).toISOString(), firstFamily.familyId);
   assert.equal((await call(env, 'children')).status, 403);
   assert.equal((await call(env, 'report?childId=same-child')).status, 403);
   assert.equal((await call(env, 'session', { identity: other })).status, 200);
@@ -118,7 +118,7 @@ test('two families and overlapping child IDs cannot read or select each other’
 test('failed checks preserve verified data with timestamps, unknown coverage and submission evidence', async () => {
   const env = await environment(); const i = await join(env);
   env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(i.familyId, 'child-one', 'Alex One');
-  const insert = env.sqlite.prepare(`INSERT INTO provider_checks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insert = env.sqlite.prepare("INSERT INTO provider_checks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const timestamp = new Date(now - 60000).toISOString();
   const source = { version: 1, provider: 'source', childId: 'child-one', term: 's1', observedAt: timestamp,
     courses: [{ course: 'French', semester: 'C', missing: null, rows: null }], attendance: { absences: [], tardies: [] } };
@@ -149,11 +149,11 @@ test('CSRF, oversize bodies and missing configuration fail closed; UI has no emb
   assert.equal((await call(env, 'invitation', { body: { token: 'a'.repeat(5000) } })).status, 400);
   assert.equal((await call({ ...env, ACCESS_AUD: '' }, 'session')).status, 503);
   assert.equal((await call(env, 'session', { jwt: 'forged' })).status, 401);
-  const shell = await worker.fetch(new Request(origin + '/app'), env);
+  const shell = await worker.fetch(new Request(`${origin}/app`), env);
   assert.equal(shell.status, 200);
   assert.match(shell.headers.get('Content-Security-Policy'), /frame-ancestors 'none'/);
   assert.doesNotMatch(await shell.text(), /guardian-one|one@example.com|London|Storck/);
-  assert.equal((await worker.fetch(new Request(origin + '/'), env)).status, 404);
+  assert.equal((await worker.fetch(new Request(`${origin}/`), env)).status, 404);
 });
 
 test('revoking a family invalidates every read and an old invitation cannot restore it', async () => {
@@ -184,6 +184,26 @@ test('selection is remembered only in the authenticated family and unknown child
   assert.equal((await call(env, 'selection', { body: { childId: 'same-id', familyId: two.familyId } })).status, 200);
   assert.equal((await (await call(env, 'session')).json()).selectedChildId, 'same-id');
   assert.equal((await (await call(env, 'session', { identity: other })).json()).selectedChildId, null);
-  const ownReport = await (await call(env, 'report?childId=same-id&familyId=' + two.familyId)).json();
+  const ownReport = await (await call(env, `report?childId=same-id&familyId=${two.familyId}`)).json();
   assert.equal(ownReport.child.displayName, 'Alex One');
+});
+
+test('future observations do not hide older usable data or break the report cutoff', async () => {
+  const env = await environment(); const invitation = await join(env);
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(invitation.familyId, 'child-one', 'Alex One');
+  const insert = env.sqlite.prepare('INSERT INTO provider_checks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  for (const offset of [-60000, 60000]) {
+    const stamp = new Date(now + offset).toISOString();
+    const observation = { version: 1, provider: 'source', childId: 'child-one', term: 's1', observedAt: stamp,
+      courses: [], attendance: { absences: [], tardies: [] } };
+    insert.run(crypto.randomUUID(), invitation.familyId, 'child-one', 'source', 'synthetic', 'ok', null,
+      stamp, stamp, JSON.stringify(observation), stamp);
+  }
+  const response = await call(env, 'report?childId=child-one');
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.providers[0].observedAt, new Date(now - 60000).toISOString());
+  env.sqlite.prepare('DELETE FROM provider_checks WHERE observed_at < ?').run(new Date(now).toISOString());
+  const withoutPast = await (await call(env, 'report?childId=child-one')).json();
+  assert.equal(withoutPast.report.source, null);
 });

@@ -21,61 +21,78 @@ async function verifiedPage(page, provider) {
   }
 }
 
+function sourceChoice(link) {
+  if (!text(link.label)) throw new CheckError('child_discovery_layout_unverified');
+  const href = link.href && new URL(link.href, sites.source.origin);
+  const navigates = href?.origin === sites.source.origin && href.pathname === '/guardian/home.html'
+    && /^\d+$/.test(href.searchParams.get('student') ?? '');
+  const tabId = /^[a-zA-Z][a-zA-Z0-9_-]{0,100}$/.test(link.id ?? '') ? link.id : null;
+  const switchId = sourceSwitchId(link.href);
+  if (navigates) return { remoteId: href.pathname + href.search, mapping: { tabHref: href.pathname + href.search } };
+  if (switchId) return { remoteId: `student-switch:${switchId}`, mapping: { tabSwitchId: switchId } };
+  if (tabId) return { remoteId: tabId, mapping: { tabId } };
+  throw new CheckError('child_discovery_layout_unverified');
+}
+
+async function selectSourceIdTab(page, tabId) {
+  // Only a rendered child-tab click; no internal API or JavaScript handler replay.
+  const tab = page.locator(`[id="${tabId}"]`);
+  const active = await tab.evaluate(el => el.matches('[aria-current="page"], [aria-selected="true"], .selected')
+    || Boolean(el.closest('li.selected, li.active')));
+  if (active) return;
+  const before = await page.getByRole('heading', { name: /^Grades: / }).innerText();
+  await tab.click();
+  await page.waitForFunction(({ id, previous }) => {
+    const el = document.getElementById(id);
+    const selected = el?.matches('[aria-current="page"], [aria-selected="true"], .selected') || Boolean(el?.closest('li.selected, li.active'));
+    const heading = Array.from(document.querySelectorAll('h1,h2,[role="heading"]')).find(e => /^Grades: /.test(e.innerText));
+    return selected && heading?.innerText !== previous;
+  }, { id: tabId, previous: before }, { timeout: 10000 });
+}
+
+async function selectSourceChoice(page, choice, label) {
+  await page.goto(`${sites.source.origin}/guardian/home.html`, { waitUntil: 'domcontentloaded' });
+  const { tabHref, tabSwitchId, tabId } = choice.mapping;
+  if (tabHref) {
+    await page.goto(`${sites.source.origin}${tabHref}`, { waitUntil: 'domcontentloaded' });
+  } else if (tabSwitchId) {
+    const matches = [];
+    for (const candidate of await page.locator('#students-list a').filter({ hasText: label }).all()) {
+      if (sourceSwitchId(await candidate.getAttribute('href')) === tabSwitchId) matches.push(candidate);
+    }
+    if (matches.length !== 1) throw new CheckError('child_identity_ambiguous');
+    await clickSourceChildSwitch(page, matches[0], tabSwitchId);
+  } else {
+    await selectSourceIdTab(page, tabId);
+  }
+}
+
+async function sourceIdentity(page) {
+  await verifiedPage(page, 'source');
+  const heading = page.getByRole('heading', { name: /^Grades: / });
+  await heading.waitFor();
+  const studentHeading = (await heading.innerText()).replace(/^Grades:\s*/, '').trim();
+  if (!text(studentHeading) || !studentHeading.includes(',')) throw new CheckError('child_identity_unverified');
+  const [surname, ...given] = studentHeading.split(',');
+  return { studentHeading, displayName: `${given.join(',').trim()} ${surname.trim()}` };
+}
+
 export async function discoverSourceChildren(page) {
-  await page.goto(sites.source.origin + '/guardian/home.html', { waitUntil: 'domcontentloaded' });
+  await page.goto(`${sites.source.origin}/guardian/home.html`, { waitUntil: 'domcontentloaded' });
   await verifiedPage(page, 'source');
   const links = await page.locator(sourceLinks).evaluateAll(elements => elements.filter(e => e.getClientRects().length)
-    .map(e => ({ label: e.innerText.trim(), href: e.getAttribute('href'), id: e.id })));
+    .map(e => ({ label: e.innerText.trim(), href: e.href, id: e.id })));
   if (!links.length || links.length > 20) throw new CheckError('child_discovery_layout_unverified');
   const seen = new Set(); const children = [];
   for (const link of links) {
-    if (!text(link.label)) throw new CheckError('child_discovery_layout_unverified');
-    const href = link.href && new URL(link.href, sites.source.origin);
-    const navigates = href?.origin === sites.source.origin && href.pathname === '/guardian/home.html'
-      && /^\d+$/.test(href.searchParams.get('student') ?? '');
-    const tabId = /^[a-zA-Z][a-zA-Z0-9_-]{0,100}$/.test(link.id ?? '') ? link.id : null;
-    const switchId = sourceSwitchId(link.href);
-    if (!navigates && !tabId && !switchId) throw new CheckError('child_discovery_layout_unverified');
-    const remoteId = navigates ? href.pathname + href.search : switchId ? `student-switch:${switchId}` : tabId;
-    if (seen.has(remoteId)) continue;
-    seen.add(remoteId);
-    await page.goto(sites.source.origin + '/guardian/home.html', { waitUntil: 'domcontentloaded' });
-    if (navigates) {
-      await page.goto(href.href, { waitUntil: 'domcontentloaded' });
-    } else if (switchId) {
-      const tab = page.locator('#students-list a').filter({ hasText: link.label });
-      const matches = [];
-      for (const candidate of await tab.all()) {
-        if (sourceSwitchId(await candidate.getAttribute('href')) === switchId) matches.push(candidate);
-      }
-      if (matches.length !== 1) throw new CheckError('child_identity_ambiguous');
-      await clickSourceChildSwitch(page, matches[0], switchId);
-    } else {
-      // Only a rendered child-tab click; no internal API or JavaScript handler replay.
-      const tab = page.locator(`[id="${tabId}"]`);
-      const active = await tab.evaluate(el => el.matches('[aria-current="page"], [aria-selected="true"], .selected')
-        || !!el.closest('li.selected, li.active'));
-      if (!active) {
-        const before = await page.getByRole('heading', { name: /^Grades: / }).innerText();
-        await tab.click();
-        await page.waitForFunction(({ id, previous }) => {
-          const el = document.getElementById(id);
-          const selected = el?.matches('[aria-current="page"], [aria-selected="true"], .selected') || el?.closest('li.selected, li.active');
-          const heading = Array.from(document.querySelectorAll('h1,h2,[role="heading"]')).find(e => /^Grades: /.test(e.innerText));
-          return selected && heading?.innerText !== previous;
-        }, { id: tabId, previous: before }, { timeout: 10000 });
-      }
-    }
-    await verifiedPage(page, 'source');
-    const heading = page.getByRole('heading', { name: /^Grades: / });
-    await heading.waitFor();
-    const studentHeading = (await heading.innerText()).replace(/^Grades:\s*/, '').trim();
-    if (!text(studentHeading) || !studentHeading.includes(',')) throw new CheckError('child_identity_unverified');
-    const [surname, ...given] = studentHeading.split(',');
-    const displayName = `${given.join(',').trim()} ${surname.trim()}`;
-    if (children.some(c => c.mapping.studentHeading === studentHeading)) throw new CheckError('child_identity_ambiguous');
-    children.push({ remoteId, displayName, mapping: { tabLabel: link.label, studentHeading,
-      ...(navigates ? { tabHref: href.pathname + href.search } : switchId ? { tabSwitchId: switchId } : { tabId }) } });
+    const choice = sourceChoice(link);
+    if (seen.has(choice.remoteId)) continue;
+    seen.add(choice.remoteId);
+    await selectSourceChoice(page, choice, link.label);
+    const { studentHeading, displayName } = await sourceIdentity(page);
+    if (children.some(child => child.mapping.studentHeading === studentHeading)) throw new CheckError('child_identity_ambiguous');
+    children.push({ remoteId: choice.remoteId, displayName,
+      mapping: { tabLabel: link.label, studentHeading, ...choice.mapping } });
   }
   return children;
 }

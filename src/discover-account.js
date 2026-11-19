@@ -7,7 +7,7 @@ import { signInSchoology } from '../scripts/browser-run/schoology-login.js';
 // Every job owns a fresh browser/context; no family shares cookies or tabs.
 // launch is supplied by the stock-Chrome host or the Browser Run Worker.
 export async function discoverAccount(provider, credentials, launch, timeoutMs = 75000) {
-  let browser; let context; let timer; let expired = false;
+  let browser = null; let context = null; let timer = null; let expired = false;
   try {
     if (!['source', 'schoology'].includes(provider)) throw new CheckError('invalid_provider');
     timer = setTimeout(() => { expired = true; browser?.close().catch(() => null); }, timeoutMs);

@@ -5,7 +5,7 @@ import { discoverAccount } from '../discover-account.js';
 // One claimed job per invocation bounds workload; overlapping invocations
 // cannot claim the same job. No raw errors, credentials or records are logged.
 export async function runSchoologyDiscovery(env, dependencies = {}) {
-  let job;
+  let job = null;
   try {
     job = await claimDiscovery(env, 'schoology');
     if (!job) return { status: 'idle' };

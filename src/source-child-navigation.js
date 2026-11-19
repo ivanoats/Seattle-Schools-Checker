@@ -9,7 +9,7 @@ export const sourceSwitchId = href => typeof href === 'string'
 export function consumeSourceChildSwitch(page, request) {
   const pending = pendingSwitches.get(page);
   if (!pending || pending.used || request.method() !== 'POST' || !request.isNavigationRequest()
-      || request.frame() !== page.mainFrame() || request.url() !== sites.source.origin + '/guardian/home.html'
+      || request.frame() !== page.mainFrame() || request.url() !== `${sites.source.origin}/guardian/home.html`
       || request.headers()['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded') return false;
   const fields = new URLSearchParams(request.postData() ?? '');
   if ([...fields.keys()].length !== 1 || fields.get('selected_student_id') !== pending.id) return false;
@@ -22,11 +22,11 @@ export async function clickSourceChildSwitch(page, tab, id) {
   if (!/^\d{1,12}$/.test(id) || sourceSwitchId(tabHref) !== id) {
     throw new CheckError('child_discovery_layout_unverified');
   }
-  const active = await tab.evaluate(el => !!el.closest('li.selected'));
+  const active = await tab.evaluate(el => Boolean(el.closest('li.selected')));
   if (active) return;
   if (await page.locator('#switch_student_form').count() !== 1) throw new CheckError('child_discovery_layout_unverified');
   const validForm = await page.locator('#switch_student_form').evaluate(form =>
-    form.action === location.origin + '/guardian/home.html' && form.method.toLowerCase() === 'post'
+    form.action === `${location.origin}/guardian/home.html` && form.method.toLowerCase() === 'post'
       && form.elements.length === 1 && form.elements[0].name === 'selected_student_id'
       && form.elements[0].type === 'hidden');
   if (!validForm) throw new CheckError('child_discovery_layout_unverified');

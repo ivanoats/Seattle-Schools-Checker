@@ -14,13 +14,14 @@ import worker from '../src/cloudflare/worker.js';
 const origin = 'https://pilot.example'; const now = Date.now();
 const sqlite = new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys = ON');
 for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql']) {
-  sqlite.exec(await readFile(new URL('../worker/migrations/' + name, import.meta.url), 'utf8'));
+  sqlite.exec(await readFile(new URL(`../worker/migrations/${name}`, import.meta.url), 'utf8'));
 }
 sqlite.prepare('INSERT INTO pilot_families (id, created_at) VALUES (?, ?)').run('family-one', new Date(now).toISOString());
 sqlite.prepare('INSERT INTO pilot_members (subject, family_id, email, created_at) VALUES (?, ?, ?, ?)')
   .run('parent-one', 'family-one', 'parent@example.com', new Date(now).toISOString());
 const stmt = (sql, values = []) => ({ bind: (...args) => stmt(sql, args),
-  run: async () => sqlite.prepare(sql).run(...values), all: async () => ({ results: sqlite.prepare(sql).all(...values) }) });
+  run: () => Promise.resolve(sqlite.prepare(sql).run(...values)),
+  all: () => Promise.resolve({ results: sqlite.prepare(sql).all(...values) }) });
 const env = { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'pilot',
   CONNECTION_KEY: 'a'.repeat(64), SOURCE_DISCOVERY_TOKEN: 'b'.repeat(64), SCHOOLOGY_DISCOVERY_TOKEN: 'c'.repeat(64),
   SOURCE_CONNECTIONS_ENABLED: 'true', SCHOOLOGY_CONNECTIONS_ENABLED: 'true', BROWSER: {},
@@ -37,14 +38,14 @@ try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.route('**/*', async route => {
-    const r = route.request(); assert.equal(new URL(r.url()).origin, origin);
-    const request = new Request(r.url(), { method: r.method(), headers: { ...r.headers(), 'Cf-Access-Jwt-Assertion': jwt },
-      ...(['GET', 'HEAD'].includes(r.method()) ? {} : { body: r.postData() }) });
-    const response = new URL(r.url()).pathname.startsWith('/api/')
+    const browserRequest = route.request(); assert.equal(new URL(browserRequest.url()).origin, origin);
+    const request = new Request(browserRequest.url(), { method: browserRequest.method(), headers: { ...browserRequest.headers(), 'Cf-Access-Jwt-Assertion': jwt },
+      ...(['GET', 'HEAD'].includes(browserRequest.method()) ? {} : { body: browserRequest.postData() }) });
+    const response = new URL(browserRequest.url()).pathname.startsWith('/api/')
       ? await handlePilot(request, env, { keySet: keys.publicKey }) : await worker.fetch(request, env);
     return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
   });
-  await page.goto(origin + '/app');
+  await page.goto(`${origin}/app`);
   const sourceForm = page.getByRole('form', { name: 'Connect The Source' });
   await sourceForm.getByLabel('Parent username').fill('source-parent');
   await sourceForm.getByLabel('Password').fill('synthetic-source-password');
@@ -75,7 +76,7 @@ try {
   await schoolTwo.getByRole('button', { name: 'Confirm child' }).click();
   await page.getByText('Alex Two was added. You can choose this child above.').waitFor();
   const preview = await mkdtemp(join(tmpdir(), 'school-connections-preview-'));
-  await page.screenshot({ path: preview + '/connected-mobile.png', fullPage: true });
+  await page.screenshot({ path: `${preview}/connected-mobile.png`, fullPage: true });
   await page.getByRole('button', { name: 'Disconnect Schoology', exact: true }).click();
   await page.getByText('Disconnected. Saved credentials were deleted.').waitFor();
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM pilot_children').get().n, 1);

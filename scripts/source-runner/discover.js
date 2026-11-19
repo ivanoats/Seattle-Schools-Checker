@@ -5,12 +5,12 @@ export function discoveryEndpoint(value, action) {
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
       !['', '/'].includes(url.pathname)) throw new Error('invalid_discovery_origin');
-  return url.origin + '/v1/discovery/source/' + action;
+  return `${url.origin}/v1/discovery/source/${action}`;
 }
 
 export async function runSourceDiscovery({ origin, token, launch, request = fetch }) {
   if (!/^[a-f0-9]{64}$/.test(token ?? '')) return { status: 'not_configured' };
-  let job;
+  let job = null;
   try {
     const claim = await request(discoveryEndpoint(origin, 'claim'), { method: 'POST', redirect: 'error',
       headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) });
@@ -38,6 +38,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const summary = await runSourceDiscovery({ origin: process.env.DISCOVERY_APP_ORIGIN,
     token: process.env.SOURCE_DISCOVERY_TOKEN,
     launch: () => chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: process.platform === 'linux', timeout: 20000 }) });
-  process.stdout.write(JSON.stringify(summary) + '\n');
+  process.stdout.write(`${JSON.stringify(summary)}
+`);
   if (!['idle', 'recorded'].includes(summary.status)) process.exitCode = 1;
 }

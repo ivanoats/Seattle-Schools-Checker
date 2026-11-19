@@ -5,7 +5,7 @@ import { handleDiscoveryRunner } from './connections.js';
 import { runSchoologyDiscovery } from './schoology-discovery.js';
 
 export default {
-  fetch(request, env, ctx) {
+  fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith('/api/pilot/')) return handlePilot(request, env);
     const runner = pathname.match(/^\/v1\/discovery\/(source|schoology)\/(claim|complete)$/);

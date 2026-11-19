@@ -31,7 +31,7 @@ try {
       const response = await worker.fetch(new Request(url.href), {});
       return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
     }
-    let status = 200; let data;
+    let status = 200; let data = null;
     if (mode === 'expired') { status = 401; data = { status: 'sign_in_required' }; }
     else if (url.pathname.endsWith('/session')) data = { status: 'ok', email: 'parent@example.com', selectedChildId: selected, connectionsAvailable: false };
     else if (url.pathname.endsWith('/children')) data = { status: 'ok', children: mode === 'empty' ? [] : [
@@ -58,7 +58,7 @@ try {
     } else { status = 404; data = { status: 'not_found' }; }
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
   });
-  await page.goto(origin + '/app');
+  await page.goto(`${origin}/app`);
   await page.getByLabel('Whose week are we looking at?').selectOption('alex-one');
   await page.getByRole('heading', { name: 'Alex One’s saved school update' }).waitFor();
   assert.match(await page.locator('#report').innerText(), /Unknown/);
@@ -77,9 +77,9 @@ try {
   await page.getByRole('heading', { name: 'Alex Two’s saved school update' }).waitFor();
   assert.equal(await page.locator('body').evaluate(el => el.scrollWidth <= window.innerWidth), true);
   const screenshots = await mkdtemp(join(tmpdir(), 'school-pilot-preview-'));
-  await page.screenshot({ path: screenshots + '/mobile.png', fullPage: true });
+  await page.screenshot({ path: `${screenshots}/mobile.png`, fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.screenshot({ path: screenshots + '/desktop.png', fullPage: true });
+  await page.screenshot({ path: `${screenshots}/desktop.png`, fullPage: true });
   mode = 'old'; await page.reload();
   await page.getByRole('heading', { name: 'Upcoming at last verified check' }).waitFor();
   assert.match(await page.locator('#report').innerText(), /more than a day old/);

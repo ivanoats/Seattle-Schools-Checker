@@ -41,15 +41,15 @@ fieldset{border:1px solid #cad9e4;padding:1rem;margin:1rem 0}legend{font-weight:
 `;
 
 export function pilotClient() {
-  const $ = id => document.getElementById(id);
-  const status = text => { $('status').textContent = text; };
+  const byId = id => document.getElementById(id);
+  const status = text => { byId('status').textContent = text; };
   let invitation = new URLSearchParams(location.hash.slice(1)).get('invite');
   if (location.hash) history.replaceState(null, '', location.pathname);
   let generation = 0;
   let selectionWrites = Promise.resolve();
-  let connectionTimer; let cachedChildren = []; const connectionViews = new Map();
+  let connectionTimer = null; let cachedChildren = []; const connectionViews = new Map();
   async function api(path, body) {
-    const response = await fetch('/api/pilot/' + path, {
+    const response = await fetch(`/api/pilot/${path}`, {
       credentials: 'same-origin', cache: 'no-store',
       ...(body ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pilot-Request': '1' }, body: JSON.stringify(body) } : {}),
     });
@@ -60,8 +60,14 @@ export function pilotClient() {
   function node(tag, text, parent) {
     const el = document.createElement(tag); el.textContent = text; parent?.append(el); return el;
   }
-  function section(title) { const el = node('section', '', $('report')); node('h2', title, el); return el; }
-  function date(value) { return value ? new Date(value).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' }) + ' Seattle' : 'Not checked'; }
+  function section(title) { const el = node('section', '', byId('report')); node('h2', title, el); return el; }
+  function date(value) {
+    if (!value) return 'Not checked';
+    const local = new Date(value).toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short',
+    });
+    return `${local} Seattle`;
+  }
   const connectionMessage = reason => ({
     credentials_required: 'Enter your parent username and password.',
     try_again_later: 'Please wait a minute before trying another sign-in.',
@@ -75,20 +81,20 @@ export function pilotClient() {
   }[reason] || 'Sign-in or child discovery needs attention. Check your parent credentials. If the portal requires MFA, CAPTCHA or account setup, contact the pilot organizer; this pilot cannot complete those steps.');
 
   async function reloadChildren() {
-    const current = $('child').value;
+    const current = byId('child').value;
     cachedChildren = (await api('children')).children;
-    $('child').replaceChildren(new Option('Choose a child', ''));
-    for (const child of cachedChildren) $('child').add(new Option(child.displayName, child.id));
-    $('child').value = cachedChildren.some(c => c.id === current) ? current : '';
+    byId('child').replaceChildren(new Option('Choose a child', ''));
+    for (const child of cachedChildren) byId('child').add(new Option(child.displayName, child.id));
+    byId('child').value = cachedChildren.some(c => c.id === current) ? current : '';
   }
   function connectionCard(connection) {
     const provider = connection.provider;
     const title = provider === 'source' ? 'The Source' : 'Schoology';
-    let view = connectionViews.get(provider);
+    const view = connectionViews.get(provider);
     const signature = JSON.stringify([connection, connection.candidates.length ? cachedChildren : []]);
     if (view?.signature === signature) return;
     const root = document.createElement('div'); root.className = 'connection';
-    if (view) view.element.replaceWith(root); else $('connection-list').append(root);
+    if (view) view.element.replaceWith(root); else byId('connection-list').append(root);
     connectionViews.set(provider, { element: root, signature });
     node('h3', title, root);
     const pending = ['queued', 'discovering'].includes(connection.status);
@@ -98,10 +104,10 @@ export function pilotClient() {
     if (connection.available && !pending) {
       const holder = connection.status === 'ready' ? node('details', '', root) : root;
       if (holder !== root) node('summary', 'Reconnect account', holder);
-      const form = node('form', '', holder); form.method = 'post'; form.action = '/api/pilot/connections/' + provider + '/connect';
-      form.setAttribute('aria-label', 'Connect ' + title);
-      const fieldset = node('fieldset', '', form); node('legend', title + ' parent sign-in', fieldset);
-      const usernameId = provider + '-username'; const passwordId = provider + '-password';
+      const form = node('form', '', holder); form.method = 'post'; form.action = `/api/pilot/connections/${provider}/connect`;
+      form.setAttribute('aria-label', `Connect ${title}`);
+      const fieldset = node('fieldset', '', form); node('legend', `${title} parent sign-in`, fieldset);
+      const usernameId = `${provider}-username`; const passwordId = `${provider}-password`;
       const label = node('label', provider === 'schoology' ? 'Parent email' : 'Parent username', fieldset); label.htmlFor = usernameId;
       const username = node('input', '', fieldset); username.id = usernameId; username.name = 'username'; username.type = provider === 'schoology' ? 'email' : 'text';
       username.autocomplete = 'username'; username.autocapitalize = 'none'; username.spellcheck = false; username.required = true; username.maxLength = 254;
@@ -111,28 +117,28 @@ export function pilotClient() {
       form.addEventListener('submit', async event => {
         event.preventDefault(); submit.disabled = true;
         const input = { username: username.value, password: password.value }; password.value = '';
-        try { await api('connections/' + provider + '/connect', input); $('connection-status').textContent = 'Account check requested. This can take a few minutes.'; await loadConnections(); }
-        catch (error) { $('connection-status').textContent = connectionMessage(error.message); }
+        try { await api(`connections/${provider}/connect`, input); byId('connection-status').textContent = 'Account check requested. This can take a few minutes.'; await loadConnections(); }
+        catch (error) { byId('connection-status').textContent = connectionMessage(error.message); }
         finally { input.password = ''; password.value = ''; submit.disabled = false; }
       });
     }
     for (const candidate of connection.candidates) {
       const row = node('div', '', root); row.className = 'candidate'; node('strong', candidate.displayName, row);
       if (candidate.linkedChildId) { node('p', 'Added to your family’s child list.', row); continue; }
-      const label = node('label', 'How should we add ' + candidate.displayName + '?', row);
-      const select = node('select', '', row); select.id = 'candidate-' + candidate.id; label.htmlFor = select.id;
+      const label = node('label', `How should we add ${candidate.displayName}?`, row);
+      const select = node('select', '', row); select.id = `candidate-${candidate.id}`; label.htmlFor = select.id;
       select.add(new Option('Add as a new child', ''));
-      for (const child of cachedChildren) select.add(new Option('Same child as ' + child.displayName, child.id));
+      for (const child of cachedChildren) select.add(new Option(`Same child as ${child.displayName}`, child.id));
       node('p', 'Choose an existing child only if you recognize both portal records as the same person. Names alone are not matched automatically.', row);
       const button = node('button', 'Confirm child', row); button.type = 'button';
       button.addEventListener('click', async () => {
         button.disabled = true;
         try {
-          const saved = await api('connections/' + provider + '/confirm', { candidateId: candidate.id, childId: select.value || undefined });
-          await reloadChildren(); $('child').value = saved.childId; await loadReport(true); await loadConnections();
-          $('connection-status').textContent = candidate.displayName + ' was added. You can choose this child above.';
+          const saved = await api(`connections/${provider}/confirm`, { candidateId: candidate.id, childId: select.value || undefined });
+          await reloadChildren(); byId('child').value = saved.childId; await loadReport(true); await loadConnections();
+          byId('connection-status').textContent = `${candidate.displayName} was added. You can choose this child above.`;
         } catch (error) {
-          $('connection-status').textContent = error.message === 'child_provider_conflict'
+          byId('connection-status').textContent = error.message === 'child_provider_conflict'
             ? 'That child already has a different record in this portal. Add this as a new child, or choose the correct existing child.'
             : 'We could not confirm this child. Refresh the account check and try again.';
         }
@@ -140,11 +146,11 @@ export function pilotClient() {
       });
     }
     if (connection.status !== 'not_connected' && connection.status !== 'disconnected') {
-      const disconnect = node('button', 'Disconnect ' + title, root); disconnect.type = 'button';
+      const disconnect = node('button', `Disconnect ${title}`, root); disconnect.type = 'button';
       disconnect.addEventListener('click', async () => {
         disconnect.disabled = true;
-        try { await api('connections/' + provider + '/disconnect', {}); await loadConnections(); }
-        catch { $('connection-status').textContent = 'We could not disconnect this account. Try again.'; }
+        try { await api(`connections/${provider}/disconnect`, {}); await loadConnections(); }
+        catch { byId('connection-status').textContent = 'We could not disconnect this account. Try again.'; }
         finally { disconnect.disabled = false; }
       });
     }
@@ -155,7 +161,7 @@ export function pilotClient() {
       const data = await api('connections');
       for (const connection of data.connections) connectionCard(connection);
       if (data.connections.some(c => ['queued', 'discovering'].includes(c.status))) connectionTimer = setTimeout(loadConnections, 3000);
-    } catch { $('connection-status').textContent = 'Connection status is unavailable. Refresh the page before entering credentials.'; }
+    } catch { byId('connection-status').textContent = 'Connection status is unavailable. Refresh the page before entering credentials.'; }
   }
   function items(title, list, parent) {
     node('h3', title, parent);
@@ -164,25 +170,25 @@ export function pilotClient() {
     const ul = node('ul', '', parent);
     for (const item of list) {
       const li = node('li', '', ul);
-      let link;
+      let link = null;
       try {
         const url = new URL(item.url);
         if (url.origin === 'https://app.schoology.com') { link = node('a', item.assignment, li); link.href = url.href; link.rel = 'noreferrer'; }
       } catch { /* No safe direct link is available. */ }
       if (!link) node('span', item.assignment, li);
-      if (item.course) node('span', ' — ' + item.course, li);
+      if (item.course) node('span', ` — ${item.course}`, li);
       if (item.description) node('p', item.description, li);
       if (item.alsoListedOverdue) node('p', 'Submitted; Schoology also lists this overdue. Confirm the conflicting status rather than redo it.', li);
     }
   }
   function render(data) {
-    $('report').replaceChildren();
+    byId('report').replaceChildren();
     const source = data.report.source;
-    const summary = section(data.child.displayName + '’s saved school update');
+    const summary = section(`${data.child.displayName}’s saved school update`);
     node('p', 'These are saved records, not a live portal session. All times below are Seattle time.', summary);
     for (const p of data.providers) {
       node('h3', p.provider === 'source' ? 'The Source' : 'Schoology', summary);
-      node('p', 'Last verified: ' + date(p.observedAt) + '. Latest attempt: ' + date(p.lastAttemptAt) + '.', summary);
+      node('p', `Last verified: ${date(p.observedAt)}. Latest attempt: ${date(p.lastAttemptAt)}.`, summary);
       if (p.lastStatus !== 'ok') node('p', p.lastStatus === 'not_checked' ? 'No check has been recorded.' : 'The latest check did not succeed. Earlier verified records below may be out of date.', summary).className = 'warning';
       else if (Date.parse(data.report.cutoff) - Date.parse(p.observedAt) > 86400000) {
         node('p', 'This observation is more than a day old. Deadlines and assignment status may have changed.', summary).className = 'warning';
@@ -191,7 +197,7 @@ export function pilotClient() {
     if (source) {
       const grades = section('Semester grades and Source missing work');
       const wrap = node('div', '', grades); wrap.className = 'table-wrap'; wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', 'Course grades');
-      const table = node('table', '', wrap); node('caption', 'Last verified ' + date(source.observedAt), table);
+      const table = node('table', '', wrap); node('caption', `Last verified ${date(source.observedAt)}`, table);
       const head = node('tr', '', node('thead', '', table));
       for (const title of ['Course', 'Semester grade', 'Missing flags']) node('th', title, head).scope = 'col';
       const tbody = node('tbody', '', table);
@@ -199,12 +205,12 @@ export function pilotClient() {
         const row = node('tr', '', tbody);
         node('th', course.course, row).scope = 'row';
         const grade = course.semester || 'Unavailable';
-        node('td', /^[A-D][+-]?\s+0$/.test(grade) ? grade.split(/\s/)[0] + ' (percentage inconsistent)' : grade, row);
+        node('td', /^[A-D][+-]?\s+0$/.test(grade) ? `${grade.split(/\s/)[0]} (percentage inconsistent)` : grade, row);
         node('td', course.missing === null ? 'Unknown' : String(course.missing.length), row);
         if (course.missing?.length) {
-          const details = node('details', '', grades); node('summary', course.course + ': missing assignments', details);
+          const details = node('details', '', grades); node('summary', `${course.course}: missing assignments`, details);
           const ul = node('ul', '', details);
-          for (const a of course.missing) node('li', a.assignment + ' — due ' + (a.due || 'date unavailable') + '; recorded ' + (a.score || 'score unavailable'), ul);
+          for (const a of course.missing) node('li', `${a.assignment} — due ${a.due || 'date unavailable'}; recorded ${a.score || 'score unavailable'}`, ul);
         }
       }
       node('p', 'Partial credit does not establish completion or late-work eligibility. A conflicting percentage should be confirmed with the teacher.', grades);
@@ -212,7 +218,7 @@ export function pilotClient() {
       node('p', 'Each entry represents one class period. ME is medical excused; EA is excused absent; UA/UL are explicitly unexcused. A/L have unspecified excusal status.', attendance);
       const list = [...(source.attendance?.absences ?? []), ...(source.attendance?.tardies ?? [])].sort((a, b) => b.date.localeCompare(a.date));
       const ul = node('ul', '', attendance);
-      for (const a of list.slice(0, 20)) node('li', a.date + ' — period ' + a.period + ': ' + a.code, ul);
+      for (const a of list.slice(0, 20)) node('li', `${a.date} — period ${a.period}: ${a.code}`, ul);
       if (list.length > 20) node('p', 'Showing the 20 most recent class-period entries.', attendance);
       if (!list.length) node('p', 'No attendance entries in this saved observation.', attendance);
     }
@@ -227,35 +233,35 @@ export function pilotClient() {
   }
   async function loadReport(save = false) {
     const version = ++generation;
-    $('report').replaceChildren();
-    const childId = $('child').value;
+    byId('report').replaceChildren();
+    const childId = byId('child').value;
     if (!childId) { status('Choose a child to see saved school records.'); return; }
     status('Loading saved school records…');
     try {
       if (save) {
-        const write = selectionWrites.catch(() => {}).then(() => api('selection', { childId }));
+        const write = selectionWrites.catch(() => null).then(() => api('selection', { childId }));
         selectionWrites = write;
         await write;
       }
       if (version !== generation) return;
-      const data = await api('report?childId=' + encodeURIComponent(childId));
+      const data = await api(`report?childId=${encodeURIComponent(childId)}`);
       if (version !== generation) return;
       render(data); status('Saved report loaded. Check the verification times below.');
     } catch { if (version === generation) status('We could not load this report. Refresh the page to check your access.'); }
   }
   async function start() {
     try {
-      if (invitation) { $('welcome').hidden = false; status('Confirm your invitation to continue.'); return; }
+      if (invitation) { byId('welcome').hidden = false; status('Confirm your invitation to continue.'); return; }
       const session = await api('session');
       const data = await api('children');
       cachedChildren = data.children;
-      $('account').textContent = 'Signed in as ' + session.email;
-      $('family').hidden = false;
+      byId('account').textContent = `Signed in as ${session.email}`;
+      byId('family').hidden = false;
       await loadConnections();
-      $('child').replaceChildren(new Option('Choose a child', ''));
-      for (const child of data.children) $('child').add(new Option(child.displayName, child.id));
+      byId('child').replaceChildren(new Option('Choose a child', ''));
+      for (const child of data.children) byId('child').add(new Option(child.displayName, child.id));
       if (!data.children.length) { status('Your family account is ready. Connect a school account below to find your linked children.'); return; }
-      $('child').value = data.children.some(c => c.id === session.selectedChildId) ? session.selectedChildId : '';
+      byId('child').value = data.children.some(c => c.id === session.selectedChildId) ? session.selectedChildId : '';
       await loadReport();
     } catch (error) {
       const messages = { invitation_required: 'You need a family invitation to continue. Ask the pilot organizer for a new link.',
@@ -264,13 +270,13 @@ export function pilotClient() {
       status(messages[error.message] || 'We could not open your family account. Please try again later.');
     }
   }
-  $('accept').addEventListener('click', async () => {
-    $('accept').disabled = true;
-    try { await api('invitation', { token: invitation }); invitation = null; $('welcome').hidden = true; await start(); }
+  byId('accept').addEventListener('click', async () => {
+    byId('accept').disabled = true;
+    try { await api('invitation', { token: invitation }); invitation = null; byId('welcome').hidden = true; await start(); }
     catch { status('This invitation is unavailable. Sign in with the invited email or ask for a new invitation.'); }
-    finally { $('accept').disabled = false; }
+    finally { byId('accept').disabled = false; }
   });
-  $('child').addEventListener('change', () => loadReport(true));
-  $('refresh').addEventListener('click', () => loadReport());
-  void start();
+  byId('child').addEventListener('change', () => loadReport(true));
+  byId('refresh').addEventListener('click', () => loadReport());
+  start().catch(() => status('We could not start the dashboard. Please refresh the page.'));
 }
