@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { sealCredentials } from '../src/cloudflare/connection-crypto.js';
 import { enqueueHostedChecks, claimHostedCheck, completeHostedCheck, handleHostedRunner } from '../src/cloudflare/hosted-checks.js';
 import { dailyCheckSlot, skippedCheckDates } from '../src/cloudflare/check-schedule.js';
-import { disconnectConnection } from '../src/cloudflare/connections.js';
+import { disconnectConnection, submitConnection, claimDiscovery } from '../src/cloudflare/connections.js';
 import { runHostedSource } from '../scripts/source-runner/hosted.js';
 import { runHostedSchedule } from '../src/cloudflare/hosted-schedule.js';
 
@@ -32,7 +32,7 @@ async function environment() {
     for (const provider of ['source', 'schoology']) {
       const connection = { id: `${family}-${provider}`, revision: 'revision', family_id: family, provider };
       const credentials = await sealCredentials({ username: `${family}@example.com`, password: 'synthetic-password' }, connection, env.CONNECTION_KEY);
-      sqlite.prepare(`INSERT INTO pilot_connections VALUES (?, ?, ?, ?, ?, 'ready', NULL, ?, ?)`)
+      sqlite.prepare("INSERT INTO pilot_connections VALUES (?, ?, ?, ?, ?, 'ready', NULL, ?, ?)")
         .run(connection.id, family, provider, connection.revision, credentials, new Date(now).toISOString(), new Date(now).toISOString());
       for (const child of ['first', 'second']) {
         const mapping = provider === 'source' ? { tabLabel: 'Alex', studentHeading: `${child}, Alex`, tabSwitchId: child === 'first' ? '1' : '2' }
@@ -159,4 +159,23 @@ test('scheduled Schoology consumer stores observations without returning credent
   } });
   assert.deepEqual(status, { status: 'recorded' });
   assert.equal(env.sqlite.prepare("SELECT count(*) AS n FROM provider_checks WHERE provider = 'schoology'").get().n, 2);
+});
+
+
+test('reconnect waits for the older browser to close and keeps a full discovery window', async () => {
+  const env = await environment(); await enqueueHostedChecks(env, now);
+  const job = await claimHostedCheck(env, 'source', now);
+  const connection = env.sqlite.prepare('SELECT c.* FROM pilot_connections c JOIN pilot_check_jobs j ON j.connection_id=c.id WHERE j.id=?').get(job.id);
+  const reconnectedAt = now + 61000;
+  const response = await submitConnection(env, { family_id: connection.family_id }, 'source',
+    { username: 'parent@example.com', password: 'replacement' }, reconnectedAt);
+  assert.equal(response.status, 202);
+  assert.equal(await claimDiscovery(env, 'source', reconnectedAt), null, 'old browser still owns the connection');
+  await claimHostedCheck(env, 'source', reconnectedAt);
+  assert.equal(env.sqlite.prepare('SELECT state FROM pilot_check_jobs WHERE id = ?').get(job.id).state, 'running');
+  const finishedAt = now + 241000;
+  assert.equal(await completeHostedCheck(env, 'source', job.id, job.lease, output(job, finishedAt - 1000), finishedAt), false);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM provider_checks WHERE run_id = ?').get(job.id).n, 0);
+  assert.equal(env.sqlite.prepare('SELECT state FROM pilot_check_jobs WHERE id = ?').get(job.id).state, 'cancelled');
+  assert.ok(await claimDiscovery(env, 'source', finishedAt), 'reconnect still has its full discovery lease available');
 });

@@ -52,12 +52,14 @@ sequenceDiagram
   mappings, never credential copies. Source uses its existing provider-scoped
   machine token over HTTPS; redirects are refused. Schoology stays inside the
   scheduled Worker. Request bodies and school records are not written to logs.
-- A lease cannot be claimed unless its entire five-minute window remains before
+- A collection lease cannot be claimed unless its entire five-minute window remains before
   expiry. Browser collection has a four-minute deadline, leaving delivery time.
 - Every result must contain exactly the claimed children. Wrong-provider,
   forged-lease, duplicate-child, future-dated and incomplete results are rejected.
 - Completion rechecks revocation, disconnect/reconnect revision, and every
-  confirmed mapping inside the D1 write transaction. Stale results cannot restore
+  confirmed mapping inside the D1 write transaction. Reconnect waits for an older
+  running browser to close or its lease to expire; its discovery deadline allows
+  a fresh five-minute window after that lease. Stale results cannot restore
   access or write into another family's history.
 - Sign-in or identity challenges pause that connection until an explicit parent
   reconnect. MFA, CAPTCHA and SSO are never bypassed. Ordinary collection failures

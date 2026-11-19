@@ -68,7 +68,7 @@ async function expireChecks(env, provider, now) {
     { status: 'unavailable', reason: 'check_expired' }, now, true);
   await env.DB.prepare(`UPDATE pilot_check_jobs SET state = 'cancelled' WHERE connection_id IN
     (SELECT id FROM pilot_connections WHERE provider = ?) AND ((state = 'queued' AND expires_at <= ?) OR (state = 'running' AND lease_expires_at <= ?)
-    OR (state IN ('queued', 'running') AND NOT EXISTS (SELECT 1 FROM pilot_connections c
+    OR (state = 'queued' AND NOT EXISTS (SELECT 1 FROM pilot_connections c
       JOIN pilot_families f ON f.id = c.family_id WHERE c.id = pilot_check_jobs.connection_id
         AND c.revision = pilot_check_jobs.revision AND c.status = 'ready' AND f.revoked_at IS NULL)))`)
     .bind(provider, iso(now), iso(now)).run();
@@ -150,7 +150,16 @@ async function finishHostedCheck(env, provider, jobId, leaseHash, output, now, e
   const doneGuard = guard.replace("AND c.status = 'ready'", "AND c.status IN ('ready', 'attention')");
   statements.push(env.DB.prepare(`UPDATE pilot_check_jobs SET state = 'done' WHERE id = ? AND EXISTS (${doneGuard})`).bind(jobId, ...params));
   await env.DB.batch(statements);
-  return Boolean((await rows(env.DB.prepare("SELECT id FROM pilot_check_jobs WHERE id = ? AND state = 'done'").bind(jobId))).length);
+  const completed = Boolean((await rows(env.DB.prepare("SELECT id FROM pilot_check_jobs WHERE id = ? AND state = 'done'").bind(jobId))).length);
+  // Completion is sent only after the browser closes. A reconnect/revocation may
+  // reject the records, but must not keep that closed session's mutex held.
+  if (!completed) await env.DB.prepare(`UPDATE pilot_check_jobs SET state = 'cancelled'
+    WHERE id = ? AND state = 'running' AND lease_hash = ? AND NOT EXISTS (
+      SELECT c.id FROM pilot_connections c JOIN pilot_families f ON f.id = c.family_id
+      WHERE c.id = pilot_check_jobs.connection_id AND c.revision = pilot_check_jobs.revision
+        AND c.status = 'ready' AND f.revoked_at IS NULL)`)
+    .bind(jobId, leaseHash).run();
+  return completed;
 }
 
 export async function completeHostedCheck(env, provider, jobId, lease, output, now = Date.now()) {

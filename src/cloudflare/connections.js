@@ -72,8 +72,11 @@ export async function submitConnection(env, member, provider, input, now) {
         AND pilot_connections.revision = ?`)
       .bind(connection.id, member.family_id, provider, connection.revision, encrypted, timestamp, timestamp, member.family_id, iso(now - 60000), existing?.revision ?? ''),
     env.DB.prepare(`INSERT INTO pilot_discovery_jobs (id, connection_id, revision, state, created_at, expires_at)
-      SELECT ?, id, revision, 'queued', ?, ? FROM pilot_connections WHERE id = ? AND revision = ?`)
-      .bind(jobId, timestamp, iso(now + 300000), connection.id, connection.revision),
+      SELECT ?, id, revision, 'queued', ?, strftime('%Y-%m-%dT%H:%M:%fZ',
+        MAX(?, COALESCE((SELECT MAX(lease_expires_at) FROM pilot_check_jobs
+          WHERE connection_id = pilot_connections.id AND state = 'running'), ?)), '+5 minutes')
+      FROM pilot_connections WHERE id = ? AND revision = ?`)
+      .bind(jobId, timestamp, timestamp, timestamp, connection.id, connection.revision),
   ]);
   const won = (await rows(env.DB.prepare('SELECT id FROM pilot_discovery_jobs WHERE id = ?').bind(jobId))).length;
   if (!changes || !won) return reply(409, { status: 'discovery_in_progress' });
