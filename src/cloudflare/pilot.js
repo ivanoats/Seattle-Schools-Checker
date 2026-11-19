@@ -40,7 +40,7 @@ function originAllowed(request, env) {
 }
 
 async function membership(db, identity) {
-  return (await result(db.prepare(`SELECT m.family_id, m.selected_child_id FROM pilot_members m
+  return (await result(db.prepare(`SELECT m.subject, m.email, m.family_id, m.selected_child_id FROM pilot_members m
     JOIN pilot_families f ON f.id = m.family_id
     WHERE m.subject = ? AND m.email = ? AND f.revoked_at IS NULL`)
     .bind(identity.subject, identity.email)))[0] ?? null;
@@ -133,7 +133,7 @@ async function connectionAction(request, env, member, route, now) {
   const [, provider, action] = route;
   if (action === 'disconnect') return disconnectConnection(env, member, provider, now);
   const input = await readBody(request);
-  if (action === 'confirm') return confirmCandidate(env, member, provider, input);
+  if (action === 'confirm') return confirmCandidate(env, member, provider, input, now);
   return submitConnection(env, member, provider, input, now);
 }
 

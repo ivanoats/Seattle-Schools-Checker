@@ -24,7 +24,7 @@ const schoologyChild = () => ({ remoteId: 'parent-child-123', displayName: 'Alex
 
 async function environment() {
   const sqlite = new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys = ON');
-  for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql', '0005_check_attempts.sql']) {
+  for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql', '0005_check_attempts.sql', '0006_report_recipients.sql']) {
     sqlite.exec(await readFile(new URL(`../worker/migrations/${name}`, import.meta.url), 'utf8'));
   }
   for (const n of [1, 2]) {
@@ -421,5 +421,126 @@ test('deadline-triggered browser closure is reported as expiry, not a credential
     assert.deepEqual(result, { status: 'attention', reason: 'discovery_expired' });
     assert.deepEqual(input, { username: '', password: '' });
     assert.ok(closed > 0);
+  }
+});
+
+
+async function discoverForParent(env,provider,parent=1,children=null) {
+  assert.equal((await call(env,`connections/${provider}/connect`,credentials(),parent)).status,202);
+  const job=await claimDiscovery(env,provider,now+1000);
+  assert.ok(await completeDiscovery(env,provider,job.id,job.lease,{status:'ok',children:children ?? (provider==='source'?[sourceChild(1),sourceChild(2)]:[schoologyChild()])},now+2000));
+  return (await state(env,parent)).find(connection=>connection.provider===provider).candidates;
+}
+
+test('each confirmed child defaults to its authenticated parent email, never portal or request emails', async () => {
+  const env=await environment();
+  const children=await discoverForParent(env,'source');
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_report_recipients').get().n,0,'discovery alone never enables a recipient');
+  for(const candidate of children) {
+    const result=await (await call(env,'connections/source/confirm',{candidateId:candidate.id,email:'attacker@example.com',recipients:['other@example.com']})).json();
+    assert.equal(result.status,'linked');
+    const saved=env.sqlite.prepare('SELECT * FROM pilot_report_recipients WHERE family_id=? AND child_id=?').get('family-1',result.childId);
+    assert.deepEqual(JSON.parse(saved.recipients),['parent1@example.com']);
+    assert.ok(saved.revision);assert.equal(saved.updated_at,new Date(now).toISOString());
+    assert.deepEqual(result.initializedRecipients,{recipients:['parent1@example.com'],revision:saved.revision});
+    const read=await (await call(env,`report-recipients?childId=${result.childId}`)).json();
+    assert.equal(read.revision,saved.revision);
+    assert.equal((await call(env,'report-recipients',{childId:result.childId,revision:read.revision,recipients:['partner@example.com']})).status,200);
+  }
+  const secondParent=await discoverForParent(env,'source',2,[sourceChild(1)]);
+  const other=await (await call(env,'connections/source/confirm',{candidateId:secondParent[0].id},2)).json();
+  const saved=env.sqlite.prepare('SELECT recipients FROM pilot_report_recipients WHERE family_id=? AND child_id=?').get('family-2',other.childId);
+  assert.deepEqual(JSON.parse(saved.recipients),['parent2@example.com']);
+});
+
+test('matching another portal, reconnecting, and another parent preserve edited or empty recipient lists', async () => {
+  for(const recipients of [[],['partner@example.com']]) {
+    const env=await environment();
+    const source=(await discoverForParent(env,'source'))[0];
+    const saved=await (await call(env,'connections/source/confirm',{candidateId:source.id})).json();
+    const settings=await (await call(env,`report-recipients?childId=${saved.childId}`)).json();
+    assert.equal((await call(env,'report-recipients',{childId:saved.childId,revision:settings.revision,recipients})).status,200);
+    const before=env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get();
+    const school=(await discoverForParent(env,'schoology'))[0];
+    assert.equal((await call(env,'connections/schoology/confirm',{candidateId:school.id,childId:saved.childId})).status,200);
+    env.sqlite.prepare('INSERT INTO pilot_members (subject,family_id,email,created_at) VALUES (?,?,?,?)').run('parent-3','family-1','parent3@example.com',new Date(now).toISOString());
+    assert.equal((await call(env,'connections/source/confirm',{candidateId:source.id},3)).status,200);
+    await call(env,'connections/source/disconnect',{});
+    assert.equal((await call(env,'connections/source/connect',credentials(),1,now+61000)).status,202);
+    const job=await claimDiscovery(env,'source',now+62000);
+    await completeDiscovery(env,'source',job.id,job.lease,{status:'ok',children:[sourceChild(1)]},now+63000);
+    const reconnected=(await state(env,1,now+64000))[0].candidates[0];
+    assert.equal((await call(env,'connections/source/confirm',{candidateId:reconnected.id,childId:saved.childId},1,now+64000)).status,200);
+    assert.deepEqual(env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get(),before);
+  }
+});
+
+test('revocation racing confirmation cannot create a child or default recipient', async () => {
+  const env=await environment();const candidate=(await discoverForParent(env,'source'))[0];
+  const original=env.DB.batch;
+  env.DB.batch=statements=>{
+    env.sqlite.prepare('UPDATE pilot_families SET revoked_at=? WHERE id=?').run(new Date(now).toISOString(),'family-1');
+    return original(statements);
+  };
+  assert.equal((await call(env,'connections/source/confirm',{candidateId:candidate.id})).status,409);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_children').get().n,0);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_report_recipients').get().n,0);
+});
+
+
+test('an unsupported sign-in address leaves a manual recipient choice without blocking confirmation', async () => {
+  const env=await environment();const candidate=(await discoverForParent(env,'source'))[0];
+  const email='parent1@例子.test';env.sqlite.prepare('UPDATE pilot_members SET email=? WHERE subject=?').run(email,'parent-1');
+  const jwt=await new SignJWT({email}).setProtectedHeader({alg:'RS256'}).setSubject('parent-1').setAudience('pilot')
+    .setIssuer('https://example.cloudflareaccess.com').setIssuedAt(now/1000).setExpirationTime(now/1000+3600).sign(keys.privateKey);
+  const response=await handlePilot(new Request(`${origin}/api/pilot/connections/source/confirm`,{method:'POST',
+    headers:{'Cf-Access-Jwt-Assertion':jwt,'Content-Type':'application/json',Origin:origin,'X-Pilot-Request':'1'},
+    body:JSON.stringify({candidateId:candidate.id})}),env,options);
+  assert.equal(response.status,200);assert.equal((await response.json()).recipientSetupRequired,true);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_report_recipients').get().n,0);
+});
+
+test('membership removed just before confirmation cannot add a default or a child', async () => {
+  const env=await environment();const candidate=(await discoverForParent(env,'source'))[0];const original=env.DB.batch;
+  env.DB.batch=statements=>{
+    env.sqlite.prepare("DELETE FROM pilot_members WHERE subject='parent-1'").run();
+    return original(statements);
+  };
+  assert.equal((await call(env,'connections/source/confirm',{candidateId:candidate.id})).status,409);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_children').get().n,0);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_report_recipients').get().n,0);
+});
+
+
+test('a legacy child with no settings receives an initialization snapshot for its cached editor', async () => {
+  const env=await environment();const source=(await discoverForParent(env,'source'))[0];
+  const child=await (await call(env,'connections/source/confirm',{candidateId:source.id})).json();
+  env.sqlite.prepare('DELETE FROM pilot_report_recipients').run();
+  const empty=await (await call(env,`report-recipients?childId=${child.childId}`)).json();assert.equal(empty.revision,null);
+  const school=(await discoverForParent(env,'schoology'))[0];
+  const result=await (await call(env,'connections/schoology/confirm',{candidateId:school.id,childId:child.childId})).json();
+  const saved=env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get();
+  assert.deepEqual(result.initializedRecipients,{recipients:['parent1@example.com'],revision:saved.revision});
+  assert.equal(result.recipientSetupRequired,false);
+  assert.equal((await call(env,'report-recipients',{childId:child.childId,revision:result.initializedRecipients.revision,recipients:[]})).status,200);
+});
+
+test('unsupported sign-in addresses do not request setup when an edited list or empty opt-out exists', async () => {
+  for(const recipients of [[],['partner@example.com']]) {
+    const env=await environment();const source=(await discoverForParent(env,'source'))[0];
+    const child=await (await call(env,'connections/source/confirm',{candidateId:source.id})).json();
+    const settings=await (await call(env,`report-recipients?childId=${child.childId}`)).json();
+    await call(env,'report-recipients',{childId:child.childId,revision:settings.revision,recipients});
+    const before=env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get();
+    const school=(await discoverForParent(env,'schoology'))[0];
+    const email='parent1@例子.test';env.sqlite.prepare('UPDATE pilot_members SET email=? WHERE subject=?').run(email,'parent-1');
+    const jwt=await new SignJWT({email}).setProtectedHeader({alg:'RS256'}).setSubject('parent-1').setAudience('pilot')
+      .setIssuer('https://example.cloudflareaccess.com').setIssuedAt(now/1000).setExpirationTime(now/1000+3600).sign(keys.privateKey);
+    const response=await handlePilot(new Request(`${origin}/api/pilot/connections/schoology/confirm`,{method:'POST',
+      headers:{'Cf-Access-Jwt-Assertion':jwt,'Content-Type':'application/json',Origin:origin,'X-Pilot-Request':'1'},
+      body:JSON.stringify({candidateId:school.id,childId:child.childId})}),env,options);
+    const result=await response.json();assert.equal(response.status,200);
+    assert.equal(result.recipientSetupRequired,false);assert.equal(result.initializedRecipients,null);
+    assert.deepEqual(env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get(),before);
   }
 });

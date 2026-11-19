@@ -6,13 +6,47 @@ Select a confirmed child, then use **Report recipients** below School connection
 Paste up to ten address-only emails, one per line or separated by commas. The
 editor also accepts semicolons. Save the list, edit it later, or clear it and save
 to remove everyone. Each sibling has a separate list. Parent, child and partner
-addresses are entered by the parent; no real addresses are seeded into code.
+addresses can be edited by the parent; no real addresses are seeded into code.
 
 Hosted delivery uses this saved list after the weekday check. See
 [hosted report email](hosted-report-email.md) for configuration, delivery states,
 retry limits and rollout. Until a verified sender and delivery flag are configured,
 the app explicitly says **Email delivery is not enabled yet**. Recipients do not
 gain account access. Local email/PDF automation remains separate.
+
+## Sign-in email default
+
+When a parent confirms a discovered child, a recipient list that does not yet exist
+is initialized to that parent's verified app sign-in email. This is the parent
+performing confirmation, not the oldest household member, a portal username, or an
+email/recipient field in the request. Discovery alone never creates recipients.
+The connection screen explains the default before confirmation. The standard
+recipient editor loads the saved address and its revision, so parents can edit it
+or clear the list to stop reports. If another portal initializes settings for an
+already-selected child, confirmation returns only the newly inserted default and
+its revision. The editor reconciles that snapshot, showing the default when it
+was unchanged and preserving unsaved edits. Pending loads/saves defer reconciliation;
+an already loaded saved revision is never replaced by the snapshot. Explicit edit
+and save intent is tracked even for an unchanged blank field, so a default cannot
+replace an attempted empty opt-out during a concurrent save.
+
+Child confirmation, the verified portal mapping and the initial recipient row
+share one D1 transaction. Each statement rechecks the active family, current
+connection revision, and authenticated member subject/email. The recipient insert
+also requires the confirmed mapping to exist. `INSERT OR IGNORE` initializes only
+an absent settings row. An existing list, including an explicitly empty opt-out,
+keeps its addresses, revision and timestamp through portal matching, reconnection,
+repeat confirmation or another parent confirming the child. Existing children
+are not bulk-backfilled; a new portal confirmation can initialize a list only
+if no settings row has ever been saved.
+
+Unsupported sign-in email syntax does not block a valid school connection. No
+invalid default is stored; the confirmation response marks recipient setup as
+required only if settings are still absent after confirmation. An existing valid
+list or empty opt-out needs no warning. The UI tells a parent with missing settings
+to review the recipient editor. Parents can
+then choose a supported report address. Normal address validation still applies.
+No schema migration or AWS sender change is required.
 
 ## Data and access
 
