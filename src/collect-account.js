@@ -18,18 +18,24 @@ export async function collectAccount(provider, credentials, children, launch, op
     return { status: 'unavailable', reason: 'child_mapping_invalid' };
   }
   const readers = options.readers ?? { source: readSource, schoology: readSchoology };
+  const results = [];
   const output = await withPortalSession(provider, credentials, launch, async page => {
-    const results = [];
     for (const child of children) {
       try {
-        const report = await readers[provider](page, child);
+        const report = await readers[provider](page, child); // NOSONAR: child selection mutates this shared family session; reads must stay sequential.
         results.push({ childId: child.id, status: 'ok', observation: observeSchool({ provider, child, report,
           observedAt: new Date().toISOString(), assignmentRows: report.assignmentRows }) });
       } catch (error) { results.push({ childId: child.id, status: 'unavailable', reason: safeReason(error) }); }
     }
     return { status: 'ok', results };
   }, options.timeoutMs ?? 240000);
-  if (output.status === 'attention') return { status: 'unavailable',
-    reason: output.reason === 'discovery_expired' ? 'check_expired' : output.reason };
+  if (output.status === 'attention') {
+    const reason = output.reason === 'discovery_expired' ? 'check_expired' : output.reason;
+    if (!results.length) return { status: 'unavailable', reason };
+    return { status: 'ok', results: children.map(child => {
+      const completed = results.find(result => result.childId === child.id && result.status === 'ok');
+      return completed ?? { childId: child.id, status: 'unavailable', reason };
+    }) };
+  }
   return output;
 }

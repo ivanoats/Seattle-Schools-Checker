@@ -26,8 +26,8 @@ export async function withPortalSession(provider, credentials, launch, read, tim
       }
     }
     credentials.username = ''; credentials.password = '';
-    // Child discovery reads rendered pages. Source may submit only its verified,
-    // single-use child-selection form; all other non-GET requests stay blocked.
+    // Source permits its verified child-selection form and the score page’s
+    // narrowly validated assignment lookup; all other non-GET requests stay blocked.
     await context.route('**/*', async route => {
       const request = route.request(); const url = new URL(request.url());
       const allowed = (provider === 'source' && (consumeSourceChildSwitch(page, request) || sourceAssignmentLookup(page, request))) || ['GET', 'HEAD'].includes(request.method()) && (url.origin === sites[provider].origin

@@ -9,7 +9,7 @@ export default {
   fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith('/api/pilot/')) return handlePilot(request, env);
-    const checkRunner = pathname.match(/^\/v1\/collection\/source\/(claim|complete)$/);
+    const checkRunner = /^\/v1\/collection\/source\/(claim|complete)$/.exec(pathname);
     if (checkRunner) return handleHostedRunner(request, env, checkRunner[1], req => readBody(req, 1048576));
     const runner = pathname.match(/^\/v1\/discovery\/(source|schoology)\/(claim|complete)$/);
     if (runner) return handleDiscoveryRunner(request, env, runner[1], runner[2], req => readBody(req, 65536));

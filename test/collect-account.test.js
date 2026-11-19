@@ -67,3 +67,31 @@ test('hosted collection reads two confirmed children through each guarded portal
     }
   }
 });
+
+test('a later child timeout preserves the first verified observation', async () => {
+  let pending = null;
+  const browser = { close: () => { pending?.reject(new Error('Browser closed')); return Promise.resolve(); },
+    newContext: () => Promise.resolve({ close: () => Promise.resolve(), route: () => Promise.resolve(),
+      newPage: () => Promise.resolve({ setDefaultTimeout() {}, goto: () => Promise.resolve(),
+        url: () => 'https://app.schoology.com/parent/home', locator: selector => ({
+          isVisible: () => Promise.resolve(selector === '#child-session-banner'),
+        }) }) }) };
+  const output = await collectAccount('schoology', { username: 'parent@example.com', password: 'synthetic' }, children,
+    () => Promise.resolve(browser), { timeoutMs: 20, readers: { schoology: (page, child) => {
+      if (child.id === children[0].id) return Promise.resolve({ student: child.displayName,
+        overdue: null, upcoming: [], events: [], recentlyCompleted: [], overdueCoverage: 'unavailable' });
+      pending = Promise.withResolvers(); return pending.promise;
+    } } });
+  assert.equal(output.status, 'ok'); assert.equal(output.results[0].status, 'ok');
+  assert.equal(output.results[1].reason, 'check_expired');
+});
+
+test('a Source heading mismatch has an explicit identity-failure status', async () => {
+  const { readSource } = await import('../src/source.js');
+  const browser = await launchFixture('source');
+  try {
+    const context = await browser.newContext(); const page = await context.newPage(); page.setDefaultTimeout(1000);
+    const child = structuredClone(children[0]); child.providers.source.studentHeading = 'Different, Child';
+    await assert.rejects(readSource(page, child), { status: 'source_child_identity_unverified' });
+  } finally { await browser.close(); }
+});

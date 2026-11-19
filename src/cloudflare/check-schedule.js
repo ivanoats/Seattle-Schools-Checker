@@ -16,3 +16,21 @@ export function skippedCheckDates(value = '[]') {
     || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)) throw new Error('invalid_check_calendar');
   return dates;
 }
+
+export function localCheckDate(now) {
+  const parts = Object.fromEntries(formatter.formatToParts(new Date(now)).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+// Seattle midnight is 07:00 or 08:00 UTC. Check each boundary independently
+// so a daylight-saving transition produces a 23- or 25-hour local day.
+export function checkDayWindow(now) {
+  const date = localCheckDate(now);
+  const midnight = day => {
+    const summer = Date.parse(`${day}T07:00:00Z`);
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(summer)).map(part => [part.type, part.value]));
+    return parts.hour === '00' ? summer : summer + 3600000;
+  };
+  const next = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  return { start: new Date(midnight(date)).toISOString(), end: new Date(midnight(next)).toISOString() };
+}

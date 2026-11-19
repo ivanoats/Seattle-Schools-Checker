@@ -13,7 +13,7 @@ import worker from '../src/cloudflare/worker.js';
 
 const origin = 'https://pilot.example'; const now = Date.now();
 const sqlite = new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys = ON');
-for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql']) {
+for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql', '0005_check_attempts.sql']) {
   sqlite.exec(await readFile(new URL(`../worker/migrations/${name}`, import.meta.url), 'utf8'));
 }
 sqlite.prepare('INSERT INTO pilot_families (id, created_at) VALUES (?, ?)').run('family-one', new Date(now).toISOString());

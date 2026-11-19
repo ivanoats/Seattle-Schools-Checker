@@ -49,12 +49,17 @@ sequenceDiagram
 ## Failure and privacy controls
 
 - Credentials remain encrypted on the versioned connection. Jobs store child
-  mappings, never credential copies. Source uses its existing provider-scoped
+  mappings, never credential copies. Source permits only the verified child-selection form and the observed
+  main-frame assignment lookup POST from its score page (bounded four-field JSON
+  schema, exact origin/path and referrer). No internal API is reconstructed or
+  replayed. Source uses its existing provider-scoped
   machine token over HTTPS; redirects are refused. Schoology stays inside the
   scheduled Worker. Request bodies and school records are not written to logs.
 - A collection lease cannot be claimed unless its entire five-minute window remains before
   expiry. Browser collection has a four-minute deadline, leaving delivery time.
-- Every result must contain exactly the claimed children. Wrong-provider,
+- Every result must contain exactly the claimed children, and its nested school
+  entries must satisfy the observation schema. Adding or removing a confirmed
+  child invalidates the older mapping-set result. Wrong-provider,
   forged-lease, duplicate-child, future-dated and incomplete results are rejected.
 - Completion rechecks revocation, disconnect/reconnect revision, and every
   confirmed mapping inside the D1 write transaction. Reconnect waits for an older
@@ -64,13 +69,13 @@ sequenceDiagram
 - Sign-in or identity challenges pause that connection until an explicit parent
   reconnect. MFA, CAPTCHA and SSO are never bypassed. Ordinary collection failures
   are recorded as unavailable; no automatic same-day password retry occurs.
-- Expired running jobs become unavailable attempts on a later poll. Failures
+- Completed children are retained if a later child times out. Expired running jobs become unavailable attempts on a later poll. Failures
   append history and never overwrite verified records. Unknown assignment tables
   stay null, and submitted/overdue/missing remain separate evidence.
 
 ## Deployment and rollback
 
-1. Apply migration `0004_hosted_checks.sql` before deploying the Worker. Existing
+1. Apply migrations `0004_hosted_checks.sql` and `0005_check_attempts.sql` before deploying the Worker. Existing
    discovery now checks this table to avoid concurrent use of a parent account.
 2. Deploy the Worker with `HOSTED_CHECKS_ENABLED=false` initially, preserving all
    existing secret bindings. Set `HOSTED_CHECK_SKIP_DATES` to a validated JSON array.

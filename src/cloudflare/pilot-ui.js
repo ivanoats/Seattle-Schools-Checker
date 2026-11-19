@@ -186,7 +186,7 @@ export function pilotClient() {
     byId('report').replaceChildren();
     const source = data.report.source;
     const summary = section(`${data.child.displayName}’s saved school update`);
-    node('p', 'These are saved records, not a live portal session. Connected children are checked on weekdays after 5 p.m. Seattle time, plus an initial check when connected. Check the verification times below.', summary);
+    node('p', 'These are saved records, not a live portal session. When hosted checks are enabled and a connection is ready, confirmed children are checked on weekdays after 5 p.m. Seattle time, except configured closure dates, plus an initial check when connected. Check the verification times below.', summary);
     for (const p of data.providers) {
       node('h3', p.provider === 'source' ? 'The Source' : 'Schoology', summary);
       node('p', `Last verified: ${date(p.observedAt)}. Latest attempt: ${date(p.lastAttemptAt)}.`, summary);

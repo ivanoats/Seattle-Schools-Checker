@@ -27,7 +27,7 @@ export function sourceAssignmentLookup(page, request) {
     if (cache.length > 1 || cache.some(([key, value]) => key !== '_' || !/^\d{1,20}$/.test(value))) return false;
     if (!request.postData() || request.postData().length > 4096) return false;
     const body = request.postDataJSON();
-    if (!body || Array.isArray(body) || Object.keys(body).sort().join(',') !== 'end_date,section_ids,start_date,student_ids') return false;
+    if (!body || Array.isArray(body) || Object.keys(body).sort((left, right) => left.localeCompare(right)).join(',') !== 'end_date,section_ids,start_date,student_ids') return false;
     return ids(body.section_ids, 100) && ids(body.student_ids, 1) && date(body.start_date) && date(body.end_date)
       && Date.parse(body.start_date) <= Date.parse(body.end_date);
   } catch { return false; }

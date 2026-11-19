@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFile } from 'node:fs/promises';
 import { sealCredentials } from '../src/cloudflare/connection-crypto.js';
 import { enqueueHostedChecks, claimHostedCheck, completeHostedCheck, handleHostedRunner } from '../src/cloudflare/hosted-checks.js';
-import { dailyCheckSlot, skippedCheckDates } from '../src/cloudflare/check-schedule.js';
+import { dailyCheckSlot, skippedCheckDates, checkDayWindow } from '../src/cloudflare/check-schedule.js';
 import { disconnectConnection, submitConnection, claimDiscovery } from '../src/cloudflare/connections.js';
 import { runHostedSource } from '../scripts/source-runner/hosted.js';
 import { runHostedSchedule } from '../src/cloudflare/hosted-schedule.js';
@@ -12,7 +12,7 @@ import { runHostedSchedule } from '../src/cloudflare/hosted-schedule.js';
 const now = Date.parse('2026-11-19T01:00:00Z'); // Wednesday 5 p.m. Seattle.
 async function environment() {
   const sqlite = new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys = ON');
-  for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql']) {
+  for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql', '0005_check_attempts.sql']) {
     sqlite.exec(await readFile(new URL(`../worker/migrations/${name}`, import.meta.url), 'utf8'));
   }
   const statement = (sql, values = []) => ({ bind: (...args) => statement(sql, args),
@@ -178,4 +178,86 @@ test('reconnect waits for the older browser to close and keeps a full discovery 
   assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM provider_checks WHERE run_id = ?').get(job.id).n, 0);
   assert.equal(env.sqlite.prepare('SELECT state FROM pilot_check_jobs WHERE id = ?').get(job.id).state, 'cancelled');
   assert.ok(await claimDiscovery(env, 'source', finishedAt), 'reconnect still has its full discovery lease available');
+});
+
+test('adding a confirmed child rejects the older mapping-set result without pausing the connection', async () => {
+  const env = await environment(); await enqueueHostedChecks(env, now);
+  const job = await claimHostedCheck(env, 'source', now);
+  const connection = env.sqlite.prepare('SELECT c.* FROM pilot_connections c JOIN pilot_check_jobs j ON j.connection_id=c.id WHERE j.id=?').get(job.id);
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(connection.family_id, 'third', 'Alex Third');
+  env.sqlite.prepare('INSERT INTO pilot_child_providers VALUES (?, ?, ?, ?, ?, ?, ?)').run(connection.family_id, 'third', 'source', connection.id, connection.revision,
+    'third', JSON.stringify({ tabLabel: 'Alex', studentHeading: 'Third, Alex', tabSwitchId: '3' }));
+  assert.equal(await completeHostedCheck(env, 'source', job.id, job.lease, { status: 'unavailable', reason: 'sign_in_needs_attention' }, now + 1000), false);
+  assert.equal(env.sqlite.prepare('SELECT status FROM pilot_connections WHERE id=?').get(connection.id).status, 'ready');
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM provider_checks WHERE run_id=?').get(job.id).n, 0);
+});
+
+test('initial attempts near five do not trigger another same-day password attempt', async () => {
+  const env = await environment(); const early = now - 1000;
+  await enqueueHostedChecks(env, early); const job = await claimHostedCheck(env, 'source', early);
+  await enqueueHostedChecks(env, now);
+  await completeHostedCheck(env, 'source', job.id, job.lease, { status: 'unavailable', reason: 'check_failed' }, now + 1000);
+  await enqueueHostedChecks(env, now + 2000);
+  // Only the other family's independent Source job may still be claimed.
+  const otherFamily = await claimHostedCheck(env, 'source', now + 2000);
+  assert.notEqual(otherFamily.credentials.username, job.credentials.username);
+  assert.equal(await claimHostedCheck(env, 'source', now + 2000), null);
+});
+
+test('expired slots that never attempted sign-in are renewed on a later poll', async () => {
+  const env = await environment(); const weekend = Date.parse('2026-11-21T20:00:00Z');
+  await enqueueHostedChecks(env, weekend);
+  await enqueueHostedChecks(env, weekend + 3600001);
+  const jobs = env.sqlite.prepare('SELECT * FROM pilot_check_jobs').all();
+  assert.equal(jobs.length, 4);
+  assert.ok(jobs.every(job => Date.parse(job.expires_at) > weekend + 3600001));
+  assert.ok(await claimHostedCheck(env, 'source', weekend + 3600001));
+});
+
+test('malformed nested school entries cannot become verified observations', async () => {
+  for (const provider of ['source', 'schoology']) {
+    const env = await environment(); await enqueueHostedChecks(env, now);
+    const job = await claimHostedCheck(env, provider, now); const bad = output(job);
+    if (provider === 'source') bad.results[0].observation.courses[0].missing = [null];
+    else bad.results[0].observation.upcoming = [{ course: 'French', url: 'not a URL' }];
+    assert.equal(await completeHostedCheck(env, provider, job.id, job.lease, bad, now + 2000), false);
+    assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM provider_checks').get().n, 0);
+  }
+});
+
+test('infrastructure and collection-layout failures remain unavailable without disabling sign-in', async () => {
+  for (const reason of ['check_failed', 'discovery_failed', 'source_layout_changed']) {
+    const env = await environment(); await enqueueHostedChecks(env, now);
+    const job = await claimHostedCheck(env, 'source', now);
+    await completeHostedCheck(env, 'source', job.id, job.lease, { status: 'unavailable', reason }, now + 2000);
+    assert.equal(env.sqlite.prepare("SELECT count(*) AS n FROM pilot_connections WHERE status='attention'").get().n, 0);
+  }
+});
+
+test('a concurrent duplicate completion cannot report a second accepted write', async () => {
+  const env = await environment(); await enqueueHostedChecks(env, now);
+  const job = await claimHostedCheck(env, 'source', now);
+  const accepted = await Promise.all([completeHostedCheck(env, 'source', job.id, job.lease, output(job), now + 2000),
+    completeHostedCheck(env, 'source', job.id, job.lease, output(job), now + 2000)]);
+  assert.deepEqual(accepted.sort(), [false, true]);
+});
+
+test('completion uses the clock after reading its body', async () => {
+  const env = await environment(); await enqueueHostedChecks(env, now);
+  const job = await claimHostedCheck(env, 'source', now);
+  let clock = now + 1000;
+  const request = new Request('https://pilot.example/v1/collection/source/complete', { method: 'POST',
+    headers: { Authorization: `Bearer ${env.SOURCE_DISCOVERY_TOKEN}` } });
+  const response = await handleHostedRunner(request, env, 'complete', () => {
+    clock = now + 301000; return Promise.resolve({ jobId: job.id, lease: job.lease, output: output(job) });
+  }, () => clock);
+  assert.equal(response.status, 409);
+});
+
+
+test('attempt-day boundaries include the 23- and 25-hour Seattle days', () => {
+  const spring = checkDayWindow(Date.parse('2026-03-08T18:00:00Z'));
+  const autumn = checkDayWindow(Date.parse('2026-11-01T18:00:00Z'));
+  assert.equal(Date.parse(spring.end) - Date.parse(spring.start), 23 * 3600000);
+  assert.equal(Date.parse(autumn.end) - Date.parse(autumn.start), 25 * 3600000);
 });
