@@ -1,8 +1,8 @@
+import { reportDeliveryStatus } from './report-delivery.js';
 import { normalizeReportRecipients } from '../core/report-recipients.js';
 
 const rows = async statement => (await statement.all()).results;
 const revisionPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const delivery = { status: 'not_enabled' };
 
 async function childExists(env, member, childId) {
   if (typeof childId !== 'string' || !childId || childId.length > 64) return false;
@@ -17,7 +17,7 @@ export async function readReportRecipients(env, member, childId) {
     WHERE k.family_id=? AND k.id=? AND f.revoked_at IS NULL`).bind(member.family_id, childId)))[0];
   if (!saved) return { statusCode: 404, body: { status: 'child_not_found' } };
   return { statusCode: 200, body: { status: 'ok', childId, recipients: saved.recipients ? JSON.parse(saved.recipients) : [],
-    revision: saved.revision ?? null, delivery } };
+    revision: saved.revision ?? null, delivery: await reportDeliveryStatus(env, member.family_id, childId) } };
 }
 
 export async function saveReportRecipients(env, member, input, now) {
@@ -38,5 +38,5 @@ export async function saveReportRecipients(env, member, input, now) {
       WHERE pilot_report_recipients.revision=? RETURNING revision`)
     .bind(JSON.stringify(recipients), nextRevision, new Date(now).toISOString(), member.family_id, childId, revision, revision));
   if (!saved.length) return { statusCode: 409, body: { status: 'recipient_settings_changed' } };
-  return { statusCode: 200, body: { status: 'saved', childId, recipients, revision: nextRevision, delivery } };
+  return { statusCode: 200, body: { status: 'saved', childId, recipients, revision: nextRevision, delivery: await reportDeliveryStatus(env, member.family_id, childId) } };
 }

@@ -22,7 +22,7 @@ export const pilotHtml = `<!doctype html><html lang="en"><head>
 <section id="report-recipients" hidden aria-labelledby="recipient-heading">
 <h2 id="recipient-heading">Report recipients</h2>
 <p>Choose who you want to share this child’s grades, assignments and attendance with.</p>
-<p id="recipient-delivery">Email delivery is not enabled yet. You can save your list now.</p>
+<p id="recipient-delivery">Loading email delivery status…</p>
 <form id="recipient-form" method="post" action="/api/pilot/report-recipients" aria-label="Report recipients">
 <fieldset id="recipient-fields" disabled><legend>Email addresses</legend>
 <label for="recipient-emails">Recipients for this child</label>
@@ -252,6 +252,15 @@ export function pilotClient() {
       sign_in_required: 'Your sign-in has expired. Sign in again to edit recipients.',
     })[error.message] || 'We could not save these recipients. Your edits are still here. Try again.';
   }
+  function renderDelivery(delivery) {
+    const messages = { sent: 'Accepted by the email service; inbox delivery is not confirmed.',
+      failed: 'The latest report could not be sent.', unknown: 'The latest delivery could not be confirmed. It will not be resent automatically.',
+      retry: 'The email service was busy; a limited retry is scheduled.', sending: 'The latest report is being sent.',
+      skipped: 'The latest report was skipped because delivery settings changed.' };
+    byId('recipient-delivery').textContent = delivery?.status === 'enabled'
+      ? `Email delivery starts ${delivery.startDate}: weekdays after the 5 p.m. Seattle check, except configured closure dates. Save an empty list to stop emails for this child.${delivery.latest ? ` Latest report (${delivery.latest.check_date}): ${messages[delivery.latest.state] ?? 'status unavailable'}` : ''}`
+      : 'Email delivery is not enabled yet. You can save your list now.';
+  }
   async function loadRecipients(childId) {
     if (recipientView?.childId === childId && recipientView.loaded) return;
     const view = { childId, revision: null, loaded: false }; recipientView = view;
@@ -259,6 +268,7 @@ export function pilotClient() {
     byId('recipient-fields').disabled = true;
     byId('recipient-save').disabled = false; byId('recipient-reload').disabled = false;
     byId('recipient-emails').value = '';
+    byId('recipient-delivery').textContent = 'Loading email delivery status…';
     if (!childId) return;
     const child = cachedChildren.find(value => value.id === childId);
     byId('recipient-heading').textContent = `Report recipients for ${child?.displayName ?? 'this child'}`;
@@ -266,7 +276,7 @@ export function pilotClient() {
     try {
       const data = await api(`report-recipients?childId=${encodeURIComponent(childId)}`);
       if (recipientView !== view || byId('child').value !== childId) return;
-      view.revision = data.revision; view.loaded = true;
+      view.revision = data.revision; view.loaded = true; renderDelivery(data.delivery);
       byId('recipient-emails').value = data.recipients.join('\n');
       byId('recipient-status').textContent = data.recipients.length ? 'Saved recipients loaded.' : 'No recipients saved for this child.';
       byId('recipient-fields').disabled = false;
@@ -287,7 +297,9 @@ export function pilotClient() {
       if (recipientView !== view) return;
       view.revision = data.revision;
       byId('recipient-emails').value = data.recipients.join('\n');
-      byId('recipient-status').textContent = 'Recipients saved. Email delivery is not enabled yet.';
+      renderDelivery(data.delivery);
+      byId('recipient-status').textContent = data.delivery?.status === 'enabled'
+        ? 'Recipients saved. Future reports will use this list.' : 'Recipients saved. Email delivery is not enabled yet.';
     } catch (error) {
       if (recipientView === view) {
         byId('recipient-status').textContent = recipientMessage(error);

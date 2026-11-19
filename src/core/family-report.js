@@ -8,7 +8,7 @@ function localDate(timestamp, timezone) {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
-function assignmentIdentity(item) {
+export function assignmentIdentity(item) {
   if (!item.course || !item.url) return null;
   const url = new URL(item.url);
   const destination = url.searchParams.get('url') ?? url.pathname;
