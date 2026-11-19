@@ -8,12 +8,11 @@ editor also accepts semicolons. Save the list, edit it later, or clear it and sa
 to remove everyone. Each sibling has a separate list. Parent, child and partner
 addresses are entered by the parent; no real addresses are seeded into code.
 
-The app explicitly says **Email delivery is not enabled yet**. This feature stores
-the desired recipient list; it does not send email, change the existing local
-email/PDF automation, invite recipients into the app, or grant account access.
-The hosted collector still only writes school observations to the dashboard.
-A future delivery worker must use this saved per-child list and accurately report
-its delivery state before the UI can describe email as active.
+Hosted delivery uses this saved list after the weekday check. See
+[hosted report email](hosted-report-email.md) for configuration, delivery states,
+retry limits and rollout. Until a verified sender and delivery flag are configured,
+the app explicitly says **Email delivery is not enabled yet**. Recipients do not
+gain account access. Local email/PDF automation remains separate.
 
 ## Data and access
 
@@ -33,7 +32,7 @@ The server trims addresses, accepts common ASCII mailbox formats including plus
 tags, normalizes the domain, deduplicates case-insensitively and rejects malformed
 addresses, display-name/header syntax, more than ten inputs, and oversized fields.
 Validation checks syntax; it does not prove that an address exists or its owner
-wants to receive school reports. No messages or validation emails are sent.
+wants to receive school reports. Saving does not send a validation message or an immediate report.
 
 Each successful write creates a new opaque revision. Saving with a stale revision
 returns a conflict and preserves the newer list. The UI leaves the draft editable
@@ -54,5 +53,4 @@ No school portal or email provider is contacted by the tests.
 
 Apply migration 0006 before deploying the new Worker and UI. An unavailable
 settings endpoint leaves editing disabled until a successful reload. Existing
-portal collectors and local reports keep their current behavior. The UI's
-explicit disabled delivery status remains until a separate sender is implemented.
+portal collectors and local reports keep their current behavior. The UI shows disabled delivery until the hosted sender is configured and enabled.

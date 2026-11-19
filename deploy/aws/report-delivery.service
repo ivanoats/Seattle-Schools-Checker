@@ -1,0 +1,16 @@
+[Unit]
+Description=Send one claimed school report through Amazon SES
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=source-runner
+Group=source-runner
+Environment=AWS_REGION=us-west-2
+ExecStart=/opt/source-runner/deploy/aws/run-reports.sh
+TimeoutStartSec=95
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true

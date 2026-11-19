@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll for one authorized school report email
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=15s
+Unit=report-delivery.service
+
+[Install]
+WantedBy=timers.target

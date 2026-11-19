@@ -1,9 +1,11 @@
 import { enqueueHostedChecks, claimHostedCheck, completeHostedCheck } from './hosted-checks.js';
 import { runSchoologyDiscovery } from './schoology-discovery.js';
+import { runReportDelivery } from './report-delivery.js';
 import { collectAccount } from '../collect-account.js';
 
 // Called only by scheduled invocations. Parent sessions are never shared between jobs.
 export async function runHostedSchedule(env, dependencies = {}) {
+  try { await runReportDelivery(env); } catch { console.error('report_delivery_unavailable'); }
   const discovery = await (dependencies.discover ?? runSchoologyDiscovery)(env, dependencies);
   if (env.HOSTED_CHECKS_ENABLED !== 'true') return discovery;
   await enqueueHostedChecks(env);

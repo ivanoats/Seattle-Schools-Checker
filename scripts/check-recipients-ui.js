@@ -12,7 +12,7 @@ import worker from '../src/cloudflare/worker.js';
 const origin = 'https://pilot.example';
 const sqlite = new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys = ON');
 for (const migration of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql',
-  '0004_hosted_checks.sql', '0005_check_attempts.sql', '0006_report_recipients.sql']) {
+  '0004_hosted_checks.sql', '0005_check_attempts.sql', '0006_report_recipients.sql', '0007_report_deliveries.sql']) {
   sqlite.exec(await readFile(new URL(`../worker/migrations/${migration}`, import.meta.url), 'utf8'));
 }
 const now = Date.now();
@@ -119,6 +119,14 @@ try {
   await status.getByText('Saved recipients loaded.', { exact: true }).waitFor();
   assert.equal(await input.inputValue(), 'fresh@example.com');
   await page.screenshot({ path: `${preview}/desktop.png`, fullPage: true });
+  env.REPORT_EMAIL_ENABLED = 'true'; env.HOSTED_CHECKS_ENABLED = 'true';
+  env.REPORT_EMAIL_FROM = 'reports@example.com'; env.REPORT_EMAIL_START_DATE = '2026-11-19';
+  env.REPORT_EMAIL = { send: () => Promise.reject(new Error('UI checks must never send mail')) };
+  await page.locator('#recipient-reload').click();
+  await page.locator('#recipient-delivery').getByText(/Email delivery starts 2026-11-19/).waitFor();
+  await page.locator('#recipient-emails').fill('parent@example.com');
+  await page.locator('#recipient-save').click();
+  await status.getByText('Recipients saved. Future reports will use this list.', { exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(`Recipient UI passed: private per-child lists, address validation, saved edits, clearing, child-switch races, phone and desktop. Preview: ${preview}`);
 } finally { await browser.close(); }

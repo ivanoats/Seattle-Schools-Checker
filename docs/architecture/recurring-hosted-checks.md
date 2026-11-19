@@ -4,8 +4,9 @@
 
 After a parent confirms a child, the hosted app collects a first school snapshot.
 It then collects Source and Schoology records on weekdays after 5 p.m. Seattle
-time. This slice writes observations for the existing family dashboard; it does
-not send email, replace the local reports, or revive the shelved glucose feed.
+time. The collector writes observations for the family dashboard. Optional
+[hosted report email](hosted-report-email.md) sends these snapshots to per-child
+recipient lists. It does not replace local reports or revive the shelved glucose feed.
 Weekdays are not a verified school calendar. `HOSTED_CHECK_SKIP_DATES` is a JSON
 array of ISO dates for explicit holidays or closures; the pilot defaults to no
 exclusions. Do not advertise this as school-day-only polling without loading and
