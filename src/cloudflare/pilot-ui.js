@@ -50,7 +50,7 @@ a{color:#145b84;text-underline-offset:.2em}:focus-visible{outline:3px solid #a26
 #status{padding:.7rem 0;font-weight:600}li{margin:.5rem 0}table{border-collapse:collapse;width:100%;text-align:left}th,td{padding:.65rem;border-bottom:1px solid #cad9e4;vertical-align:top}
 caption{text-align:left;font-weight:700;padding:.5rem 0}.table-wrap{overflow:auto}.footnote{color:#456079;font-size:.95rem;margin-top:2rem}
 .verified{color:#275c3c}.warning{color:#80501a}[hidden]{display:none!important}@media(max-width:36rem){main{padding-top:1.4rem}section{padding:1rem}.picker{display:block}.picker select,.picker button{display:block;width:100%;margin-top:.8rem}th,td{padding:.5rem}}
-textarea{font:inherit;display:block;width:100%;min-height:8rem;padding:.6rem;border:1px solid #54758d;border-radius:.3rem;resize:vertical}fieldset{border:1px solid #cad9e4;padding:1rem;margin:1rem 0}legend{font-weight:700}form label{display:block;margin-top:.75rem}input{display:block;font:inherit;min-height:3rem;padding:.5rem;border:1px solid #54758d;border-radius:.3rem;width:min(100%,28rem)}form button{margin:1rem .6rem 0 0}form p{font-size:.95rem}.candidate{padding:.8rem 0;border-top:1px solid #cad9e4}.candidate label{display:block}.candidate select{display:block;margin:.5rem 0}.connection{border-top:1px solid #cad9e4;padding-top:1rem;margin-top:1rem}
+textarea{font:inherit;display:block;width:100%;min-height:8rem;padding:.6rem;border:1px solid #54758d;border-radius:.3rem;resize:vertical}fieldset{border:1px solid #cad9e4;padding:1rem;margin:1rem 0}legend{font-weight:700}form label{display:block;margin-top:.75rem}input{display:block;font:inherit;min-height:3rem;padding:.5rem;border:1px solid #54758d;border-radius:.3rem;width:min(100%,28rem)}form button{margin:1rem .6rem 0 0}form p{font-size:.95rem}.password-field{display:flex;align-items:stretch;width:min(100%,28rem);gap:.4rem}.password-field input{flex:1;min-width:0;width:100%}.password-field button{flex:none;margin:0;min-width:3rem;padding:.5rem;display:grid;place-items:center;background:white;color:#17334c}.password-field svg{width:1.4rem;height:1.4rem;pointer-events:none}.candidate{padding:.8rem 0;border-top:1px solid #cad9e4}.candidate label{display:block}.candidate select{display:block;margin:.5rem 0}.connection{border-top:1px solid #cad9e4;padding-top:1rem;margin-top:1rem}
 `;
 
 export function pilotClient() {
@@ -127,11 +127,26 @@ export function pilotClient() {
       const username = node('input', '', fieldset); username.id = usernameId; username.name = 'username'; username.type = provider === 'schoology' ? 'email' : 'text';
       username.autocomplete = 'username'; username.autocapitalize = 'none'; username.spellcheck = false; username.required = true; username.maxLength = 254;
       const plabel = node('label', 'Password', fieldset); plabel.htmlFor = passwordId;
-      const password = node('input', '', fieldset); password.id = passwordId; password.name = 'password'; password.type = 'password'; password.autocomplete = 'current-password'; password.required = true; password.maxLength = 2048;
+      const passwordField = node('div', '', fieldset); passwordField.className = 'password-field';
+      const password = node('input', '', passwordField); password.id = passwordId; password.name = 'password'; password.type = 'password'; password.autocomplete = 'current-password'; password.required = true; password.maxLength = 2048;
+      password.autocapitalize = 'none'; password.spellcheck = false; password.setAttribute('autocorrect', 'off');
+      const toggle = node('button', '', passwordField); toggle.type = 'button'; toggle.setAttribute('aria-controls', passwordId);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true');
+      const eye = document.createElementNS(svg.namespaceURI, 'path'); eye.setAttribute('d', 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0');
+      const slash = document.createElementNS(svg.namespaceURI, 'path'); slash.setAttribute('d', 'M3 3l18 18');
+      svg.append(eye, slash); toggle.append(svg);
+      function showPassword(visible) {
+        password.type = visible ? 'text' : 'password'; slash.style.display = visible ? '' : 'none';
+        const action = visible ? 'Hide password' : 'Show password'; toggle.setAttribute('aria-label', action); toggle.title = action;
+      }
+      showPassword(false);
+      toggle.addEventListener('click', () => showPassword(password.type === 'password'));
       const submit = node('button', 'Find linked children', fieldset); submit.type = 'submit';
       form.addEventListener('submit', async event => {
         event.preventDefault(); submit.disabled = true;
-        const input = { username: username.value, password: password.value }; password.value = '';
+        const input = { username: username.value, password: password.value }; password.value = ''; showPassword(false);
         try { await api(`connections/${provider}/connect`, input); byId('connection-status').textContent = 'Account check requested. This can take a few minutes.'; await loadConnections(); }
         catch (error) { byId('connection-status').textContent = connectionMessage(error.message); }
         finally { input.password = ''; password.value = ''; submit.disabled = false; }
