@@ -90,3 +90,16 @@ test('the guard is removed when interception cannot be enabled', async () => {
   await assert.rejects(installLoginGuard(cdp), { status: 'login_guard_unavailable' });
   assert.equal(cdp.handlers.size, 0);
 });
+
+test('Schoology allows its static navigation bundle without allowing credential posts there', () => {
+  const navigation = 'https://ui.schoology.com/platform/site-navigation-ui/bundle.0.199.28.js';
+  assert.equal(loginRequestAction(request('GET', navigation), false), 'continue_read');
+  assert.equal(loginRequestAction(request('HEAD', navigation), false), 'continue_read');
+  assert.equal(loginRequestAction(request('POST', navigation), false), 'blocked_credential_destination');
+  for (const url of ['https://ui.schoology.com/platform/other/bundle.js',
+    'https://ui.schoology.com/platform/site-navigation-ui/collect',
+    'https://ui.schoology.com/platform/site-navigation-ui/bundle.js?password=unexpected',
+    'https://ui.schoology.com.outside.invalid/platform/site-navigation-ui/bundle.js']) {
+    assert.equal(loginRequestAction(request('GET', url), false), 'block_read');
+  }
+});

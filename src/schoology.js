@@ -2,6 +2,9 @@ import { CheckError, sites } from './auth.js';
 
 export async function verifySchoologyChild(page, child, timeout = 10000) {
   await page.goto(sites.schoology.start, {waitUntil:'domcontentloaded'});
+  if (child.providers.schoology.selectionHref) {
+    await page.goto(sites.schoology.origin + child.providers.schoology.selectionHref, { waitUntil: 'domcontentloaded' });
+  }
   try {
     await page.waitForFunction(banner => {
       const selected = document.querySelector('#child-session-banner');

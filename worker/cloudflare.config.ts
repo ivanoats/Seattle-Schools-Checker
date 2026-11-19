@@ -1,4 +1,4 @@
-import { bindings, defineConfig } from 'cf/config';
+import { bindings, defineConfig, triggers } from 'cf/config';
 
 const name = 'seattle-schools-checker';
 
@@ -7,6 +7,8 @@ export default defineConfig({
     name,
     entrypoint: './worker.js',
     compatibilityDate: '2026-11-11',
+    compatibilityFlags: ['nodejs_compat'],
+    triggers: [triggers.scheduled({ schedule: '* * * * *' })],
     workersDev: true,
     previewUrls: false,
     env: {
@@ -16,6 +18,18 @@ export default defineConfig({
       CHILD_IDS: bindings.secret(),
       INGEST_TOKEN: bindings.secret(),
       STATUS_TOKEN: bindings.secret(),
+      // Access application identity and canonical origin for the invite-only UI.
+      // Optional during the existing single-family runner pilot.
+      ACCESS_TEAM_DOMAIN: bindings.secret(),
+      ACCESS_AUD: bindings.secret(),
+      APP_ORIGIN: bindings.secret(),
+      PILOT_ADMIN_TOKEN: bindings.secret(),
+      CONNECTION_KEY: bindings.secret(),
+      SOURCE_DISCOVERY_TOKEN: bindings.secret(),
+      SCHOOLOGY_DISCOVERY_TOKEN: bindings.secret(),
+      SOURCE_CONNECTIONS_ENABLED: bindings.secret(),
+      SCHOOLOGY_CONNECTIONS_ENABLED: bindings.secret(),
+      BROWSER: bindings.browser(),
     },
   },
 });

@@ -1,3 +1,5 @@
+import { isSchoologyStaticAsset } from './schoology-static-assets.js';
+
 export const sites = Object.freeze({
   source: { origin: 'https://ps.seattleschools.org', start: 'https://ps.seattleschools.org/public/' },
   sugarmate: { origin: 'https://app.sugarmate.io', start: 'https://app.sugarmate.io/home' },
@@ -18,7 +20,7 @@ export async function guardLoginRequest(route, service, onStatus = null) {
   const request = route.request(), url = new URL(request.url());
   if (['GET','HEAD'].includes(request.method())) {
     const allowedRead = url.origin === sites[service].origin || (service === 'sugarmate' && url.origin === 'https://api.sugarmate.io')
-      || (service === 'schoology' && url.origin === 'https://asset-cdn.schoology.com' && url.pathname.startsWith('/assets/'));
+      || (service === 'schoology' && isSchoologyStaticAsset(url.href));
     if (!allowedRead) { await route.abort(); return false; }
     await route.fallback(); return true;
   }

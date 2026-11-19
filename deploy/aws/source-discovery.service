@@ -1,0 +1,21 @@
+[Unit]
+Description=Find linked children for one queued Source parent connection
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=source-runner
+Group=source-runner
+StateDirectory=source-runner
+StateDirectoryMode=0700
+RuntimeDirectory=source-discovery
+RuntimeDirectoryMode=0700
+Environment=HOME=/var/lib/source-runner
+ExecStart=/opt/source-runner/deploy/aws/run-discovery.sh
+TimeoutStartSec=115
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Chromium's sandbox remains enabled. Verify user namespaces on the host;
+# never add --no-sandbox to work around a failed deployment smoke test.

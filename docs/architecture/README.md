@@ -1,5 +1,8 @@
 # Seattle Source checker architecture
 
+See [web pilot status](web-pilot-status.md) for the implemented invitation,
+membership and dashboard slice and the remaining hosted onboarding work.
+
 The checker reads school records through existing parent accounts and turns
 changes into a weekday update and a Friday family report. The current system
 runs on a Mac. The proposed web app works on phones and computers and
