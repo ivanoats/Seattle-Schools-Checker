@@ -1,5 +1,7 @@
 import { CheckError, allowedCredentialDestination, isSignedIn, sites } from '../../src/auth.js';
 
+import { isSchoologyStaticAsset } from '../../src/schoology-static-assets.js';
+
 const origin = sites.schoology.origin;
 
 export function loginRequestAction(event, alreadyPosted) {
@@ -15,8 +17,7 @@ export function loginRequestAction(event, alreadyPosted) {
     return 'continue_response';
   }
   if (['GET', 'HEAD'].includes(request.method)) {
-    if (url.origin === origin || (url.origin === 'https://asset-cdn.schoology.com' &&
-        url.pathname.startsWith('/assets/'))) return 'continue_read';
+    if (url.origin === origin || isSchoologyStaticAsset(url.href)) return 'continue_read';
     return 'block_read';
   }
   if (request.method === 'POST' && allowedCredentialDestination('schoology', url.href)) {

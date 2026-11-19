@@ -339,3 +339,33 @@ test('modern Schoology selection mappings are validated and preserved through co
   const mapping = JSON.parse(env.sqlite.prepare('SELECT mapping FROM pilot_child_providers').get().mapping);
   assert.equal(mapping.selectionHref, '/parent/switch_child/123');
 });
+
+test('Schoology discovery loads its external header under the real read policy', async () => {
+  const { loginRequestAction } = await import('../scripts/browser-run/schoology-login.js');
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const context = await browser.newContext(); const page = await context.newPage();
+    let headerLoads = 0;
+    const header = `<div data-sgy-sitenav="header-my-account-menu">
+      <button data-sgy-sitenav="nav-trigger" aria-haspopup="true" aria-expanded="false"
+        onclick="document.getElementById('remote-picker').hidden=false;this.setAttribute('aria-expanded','true')">Alex One</button>
+      <ul id="remote-picker" hidden><li><a href="/parent/switch_child/101">Alex One<p>Example High School</p></a></li></ul>
+    </div>`;
+    await context.route('**/*', async route => {
+      const request = route.request();
+      if (loginRequestAction({ request: { url: request.url(), method: request.method() } }, false) !== 'continue_read') {
+        await route.abort(); return;
+      }
+      if (new URL(request.url()).origin === 'https://ui.schoology.com') {
+        headerLoads++;
+        await route.fulfill({ contentType: 'application/javascript', body: `document.getElementById('header').innerHTML=${JSON.stringify(header)};` });
+      } else {
+        await route.fulfill({ contentType: 'text/html', body: `<div id="child-session-banner">You are viewing as Alex One</div>
+          <nav id="header"></nav><script src="https://ui.schoology.com/platform/site-navigation-ui/bundle.test.js"></script>` });
+      }
+    });
+    const children = await discoverSchoologyChildren(page);
+    assert.equal(children[0].displayName, 'Alex One');
+    assert.ok(headerLoads > 0, 'the external script must load for the account menu to exist');
+  } finally { await browser.close(); }
+});

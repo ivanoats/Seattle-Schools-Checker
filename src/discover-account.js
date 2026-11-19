@@ -1,5 +1,6 @@
 import { CheckError, ensureLogin, isSignedIn, sites } from './auth.js';
 import { discoverSourceChildren, discoverSchoologyChildren } from './portal-discovery.js';
+import { isSchoologyStaticAsset } from './schoology-static-assets.js';
 import { consumeSourceChildSwitch } from './source-child-navigation.js';
 import { signInSchoology } from '../scripts/browser-run/schoology-login.js';
 
@@ -29,7 +30,7 @@ export async function discoverAccount(provider, credentials, launch, timeoutMs =
     await context.route('**/*', async route => {
       const request = route.request(); const url = new URL(request.url());
       const allowed = (provider === 'source' && consumeSourceChildSwitch(page, request)) || ['GET', 'HEAD'].includes(request.method()) && (url.origin === sites[provider].origin
-        || (provider === 'schoology' && url.origin === 'https://asset-cdn.schoology.com' && url.pathname.startsWith('/assets/')));
+        || (provider === 'schoology' && isSchoologyStaticAsset(url.href)));
       if (allowed) await route.continue(); else await route.abort();
     });
     const children = await (provider === 'source' ? discoverSourceChildren : discoverSchoologyChildren)(page);

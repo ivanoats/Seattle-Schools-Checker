@@ -82,11 +82,15 @@ export async function discoverSourceChildren(page) {
 
 export async function discoverSchoologyChildren(page) {
   await page.goto(sites.schoology.start, { waitUntil: 'domcontentloaded' });
-  await verifiedPage(page, 'schoology');
   // The modern header mounts the child list only when its account menu opens.
   // Use its stable portal marker, never a guessed parent or child name.
   const accountControl = page.locator('[data-sgy-sitenav="header-my-account-menu"] button[data-sgy-sitenav="nav-trigger"][aria-haspopup]')
     .filter({ visible: true });
+  if (await page.locator('script[src^="https://ui.schoology.com/platform/site-navigation-ui/"]').count()) {
+    try { await accountControl.first().waitFor({ timeout: 10000 }); }
+    catch { throw new CheckError('child_discovery_layout_unverified'); }
+  }
+  await verifiedPage(page, 'schoology');
   const accountCount = await accountControl.count();
   if (accountCount > 1) throw new CheckError('child_discovery_layout_unverified');
   if (accountCount === 1) {

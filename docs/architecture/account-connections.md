@@ -177,3 +177,17 @@ name/banner mismatch case, and preserve the new path through confirmation.
 The deployed Source connection and saved child selection were verified in D1
 after the first parent retry. Schoology's modern menu was inspected in normal
 Chrome; its corrected cloud discovery still requires an explicit parent retry.
+
+The first modern-menu cloud retry still failed despite the correct selector.
+A live DOM inspection then identified Schoology's synchronous header bundle at
+`https://ui.schoology.com/platform/site-navigation-ui/`. The existing read
+policy permitted the app origin and asset CDN but blocked this separate UI
+origin, preventing the account menu from rendering. One shared static-asset
+policy now covers login and discovery: GET/HEAD only, asset CDN `/assets/`, and
+query-free JS/CSS under the exact UI navigation prefix. Other UI paths, data
+endpoints and POST requests remain blocked; the password destination remains
+`https://app.schoology.com/login`. Discovery waits for the identified header's
+account control before inspecting its menu. A regression test now loads the
+external header through the real request policy rather than assuming it was
+already present in an inline fixture. Another cloud parent retry is needed to
+verify the complete corrected path.
