@@ -77,6 +77,7 @@ test('weekends, pre-five, excluded days, activation date and disabled feature ne
 test('wait for Source, then send; never infer clear work from null or missing provider data', async () => {
   const env = await environment(); env.sqlite.prepare("DELETE FROM provider_checks WHERE provider='source'").run();
   await runReportDelivery(env, now + 1000); assert.equal(env.sent.length, 0);
+  assert.equal((await reportDeliveryStatus(env, 'one', 'first')).latest.state, 'waiting');
   await runReportDelivery(env, now + 3600000); assert.equal(env.sent.length, 4);
   assert.ok(env.sent.every(message => /The Source: current check unavailable/.test(message.text)));
   assert.ok(env.sent.every(message => /Missing work and grades are unknown/.test(message.text)));
