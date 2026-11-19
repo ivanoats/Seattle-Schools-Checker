@@ -2,6 +2,7 @@ import { CheckError, ensureLogin, isSignedIn, sites } from './auth.js';
 import { discoverSourceChildren, discoverSchoologyChildren } from './portal-discovery.js';
 import { isSchoologyStaticAsset } from './schoology-static-assets.js';
 import { consumeSourceChildSwitch } from './source-child-navigation.js';
+import { sourceAssignmentLookup } from './source-assignment-lookup.js';
 import { signInSchoology } from '../scripts/browser-run/schoology-login.js';
 
 // Every job owns a fresh browser/context; no family shares cookies or tabs.
@@ -29,7 +30,7 @@ export async function withPortalSession(provider, credentials, launch, read, tim
     // single-use child-selection form; all other non-GET requests stay blocked.
     await context.route('**/*', async route => {
       const request = route.request(); const url = new URL(request.url());
-      const allowed = (provider === 'source' && consumeSourceChildSwitch(page, request)) || ['GET', 'HEAD'].includes(request.method()) && (url.origin === sites[provider].origin
+      const allowed = (provider === 'source' && (consumeSourceChildSwitch(page, request) || sourceAssignmentLookup(page, request))) || ['GET', 'HEAD'].includes(request.method()) && (url.origin === sites[provider].origin
         || (provider === 'schoology' && isSchoologyStaticAsset(url.href)));
       if (allowed) await route.continue(); else await route.abort();
     });
