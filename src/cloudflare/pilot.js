@@ -1,5 +1,6 @@
 import { authorized } from './ingest.js';
 import { accessConfig, accessIdentity } from './pilot-auth.js';
+import { readReportRecipients, saveReportRecipients } from './report-recipients.js';
 import { buildFamilyReport } from '../core/family-report.js';
 import { connectionAvailable, connectionSummary, submitConnection, disconnectConnection, confirmCandidate } from './connections.js';
 
@@ -136,7 +137,15 @@ async function connectionAction(request, env, member, route, now) {
   return submitConnection(env, member, provider, input, now);
 }
 
+async function recipientRoute(request, env, member, url, now) {
+  const response = request.method === 'GET'
+    ? await readReportRecipients(env, member, url.searchParams.get('childId'))
+    : await saveReportRecipients(env, member, await readBody(request), now);
+  return reply(response.statusCode, response.body);
+}
+
 async function memberRoute(request, env, identity, member, url, now) {
+  if (url.pathname === '/api/pilot/report-recipients') return recipientRoute(request, env, member, url, now);
   if (url.pathname === '/api/pilot/session' && request.method === 'GET') {
     return reply(200, { status: 'ok', email: identity.email, selectedChildId: member.selected_child_id,
       connectionsAvailable: ['source', 'schoology'].some(provider => connectionAvailable(env, provider)) });

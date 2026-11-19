@@ -23,7 +23,7 @@ function token(identity = guardian, claims = {}, key = keys.privateKey) {
 
 async function environment() {
   const sqlite = new DatabaseSync(':memory:');
-  for (const file of ['0001_provider_checks.sql', '0002_pilot_families.sql']) {
+  for (const file of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0006_report_recipients.sql']) {
     sqlite.exec(await readFile(new URL(`../worker/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const statement = (sql, values = []) => ({
@@ -206,4 +206,51 @@ test('future observations do not hide older usable data or break the report cuto
   env.sqlite.prepare('DELETE FROM provider_checks WHERE observed_at < ?').run(new Date(now).toISOString());
   const withoutPast = await (await call(env, 'report?childId=child-one')).json();
   assert.equal(withoutPast.report.source, null);
+});
+
+test('recipient settings are private to a family and child, including overlapping child IDs', async () => {
+  const env = await environment(); const first = await join(env); const second = await join(env, other);
+  for (const family of [first, second]) env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(family.familyId, 'same-child', 'Alex');
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(first.familyId, 'sibling', 'Sibling');
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(second.familyId, 'private-child', 'Other child');
+  const empty = await (await call(env, 'report-recipients?childId=same-child')).json();
+  assert.deepEqual(empty.recipients, []); assert.equal(empty.revision, null); assert.equal(empty.delivery.status, 'not_enabled');
+  const saved = await call(env, 'report-recipients', { body: { childId: 'same-child', familyId: second.familyId,
+    recipients: ['child+school@example.com', 'partner@example.net'], revision: null } });
+  assert.equal(saved.status, 200);
+  assert.deepEqual((await (await call(env, 'report-recipients?childId=same-child')).json()).recipients,
+    ['child+school@example.com', 'partner@example.net']);
+  assert.deepEqual((await (await call(env, 'report-recipients?childId=same-child', { identity: other })).json()).recipients, []);
+  assert.deepEqual((await (await call(env, 'report-recipients?childId=sibling')).json()).recipients, []);
+  assert.equal((await call(env, 'report-recipients?childId=private-child')).status, 404);
+  assert.equal((await call(env, 'report-recipients', { body: { childId: 'private-child', recipients: [], revision: null } })).status, 404);
+});
+
+test('recipient edits validate addresses, reject stale tabs and allow removing every recipient', async () => {
+  const env = await environment(); const family = await join(env);
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(family.familyId, 'child', 'Alex');
+  const first = await (await call(env, 'report-recipients', { body: { childId: 'child', recipients: ['child@example.com'], revision: null } })).json();
+  assert.equal(first.status, 'saved');
+  for (const recipients of [['bad email'], ['child@example.com\r\nBcc:outsider@example.net'], Array(11).fill('child@example.com')]) {
+    assert.equal((await call(env, 'report-recipients', { body: { childId: 'child', recipients, revision: first.revision } })).status, 400);
+  }
+  const competing = await Promise.all(['parent@example.com', 'partner@example.net'].map(email =>
+    call(env, 'report-recipients', { body: { childId: 'child', recipients: [email], revision: first.revision } })));
+  assert.deepEqual(competing.map(response => response.status).sort((left, right) => left - right), [200, 409]);
+  const latest = await (await call(env, 'report-recipients?childId=child')).json();
+  assert.equal((await call(env, 'report-recipients', { body: { childId: 'child', recipients: ['outsider@example.net'], revision: null } })).status, 409);
+  assert.equal((await call(env, 'report-recipients', { body: { childId: 'child', recipients: [], revision: latest.revision } })).status, 200);
+  assert.deepEqual((await (await call(env, 'report-recipients?childId=child')).json()).recipients, []);
+});
+
+test('recipient settings require authenticated membership and matching origin, and revocation stops edits', async () => {
+  const env = await environment(); const family = await join(env);
+  env.sqlite.prepare('INSERT INTO pilot_children VALUES (?, ?, ?)').run(family.familyId, 'child', 'Alex');
+  const body = { childId: 'child', recipients: ['child@example.com'], revision: null };
+  assert.equal((await call(env, 'report-recipients', { body, Origin: 'https://bad.example' })).status, 403);
+  assert.equal((await call(env, 'report-recipients', { body, jwt: 'forged' })).status, 401);
+  env.sqlite.prepare('UPDATE pilot_families SET revoked_at=? WHERE id=?').run(new Date(now).toISOString(), family.familyId);
+  assert.equal((await call(env, 'report-recipients?childId=child')).status, 403);
+  assert.equal((await call(env, 'report-recipients', { body })).status, 403);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM pilot_report_recipients').get().n, 0);
 });
