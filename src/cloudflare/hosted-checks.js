@@ -7,6 +7,7 @@ import { configuredChild } from '../core/children.js';
 
 const rows = async statement => (await statement.all()).results;
 const iso = now => new Date(now).toISOString();
+const currentTime = value => typeof value === 'function' ? value() : value;
 const leaseMs = 300000;
 const reply = (status, body) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
 
@@ -174,17 +175,16 @@ export async function completeHostedCheck(env, provider, jobId, lease, output, n
 }
 
 export async function handleHostedRunner(request, env, action, readBody, now = Date.now) {
-  const clock = typeof now === 'function' ? now : () => now;
   const url = new URL(request.url);
   if (url.protocol !== 'https:' || url.origin !== env.APP_ORIGIN || !await authorized(request, env.SOURCE_DISCOVERY_TOKEN)) return reply(404, { status: 'not_found' });
   if (request.method !== 'POST') return reply(405, { status: 'method_not_allowed' });
   try {
     if (action === 'claim') {
-      const job = await claimHostedCheck(env, 'source', clock());
+      const job = await claimHostedCheck(env, 'source', currentTime(now));
       return reply(200, job ? { status: 'claimed', job } : { status: 'idle' });
     }
     const input = await readBody(request);
-    const accepted = await completeHostedCheck(env, 'source', input.jobId, input.lease, input.output ?? {}, clock());
+    const accepted = await completeHostedCheck(env, 'source', input.jobId, input.lease, input.output ?? {}, currentTime(now));
     return reply(accepted ? 200 : 409, { status: accepted ? 'recorded' : 'stale_job' });
   } catch { return reply(503, { status: 'check_runner_unavailable' }); }
 }

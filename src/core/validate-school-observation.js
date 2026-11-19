@@ -2,7 +2,7 @@ const record = value => value !== null && typeof value === 'object' && !Array.is
 const text = value => typeof value === 'string' && value.length <= 10000;
 const optionalText = value => value === undefined || value === null || text(value);
 const timestamp = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
-const list = (value, validate) => Array.isArray(value) && value.length <= 10000 && value.every(validate);
+const list = (value, validate) => Array.isArray(value) && value.length <= 10000 && value.every(item => validate(item));
 const nullableList = (value, validate) => value === null || list(value, validate);
 function assignment(value) {
   return record(value) && text(value.assignment) && value.assignment.length > 0 && optionalText(value.id)
