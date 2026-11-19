@@ -34,7 +34,7 @@ export default defineConfig({
       REPORT_EMAIL_ENABLED: bindings.secret(),
       REPORT_EMAIL_FROM: bindings.secret(),
       REPORT_EMAIL_START_DATE: bindings.secret(),
-      REPORT_EMAIL: bindings.sendEmail(),
+      REPORT_EMAIL_TRANSPORT: bindings.secret(),
       BROWSER: bindings.browser(),
     },
   },

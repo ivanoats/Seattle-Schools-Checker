@@ -1,3 +1,4 @@
+import { digest, randomToken } from './connection-crypto.js';
 import { dailyCheckSlot, skippedCheckDates, checkDayWindow } from './check-schedule.js';
 import { normalizeReportRecipients } from '../core/report-recipients.js';
 import { buildReportEmail } from '../core/report-email.js';
@@ -6,7 +7,7 @@ const rows = async statement => (await statement.all()).results;
 const iso = now => new Date(now).toISOString();
 
 export function reportDeliveryEnabled(env) {
-  if (env.HOSTED_CHECKS_ENABLED !== 'true' || env.REPORT_EMAIL_ENABLED !== 'true' || typeof env.REPORT_EMAIL?.send !== 'function'
+  if (env.HOSTED_CHECKS_ENABLED !== 'true' || env.REPORT_EMAIL_ENABLED !== 'true' || (env.REPORT_EMAIL_TRANSPORT !== 'ses-pull' && typeof env.REPORT_EMAIL?.send !== 'function')
       || !/^\d{4}-\d{2}-\d{2}$/.test(env.REPORT_EMAIL_START_DATE ?? '')) return false;
   try {
     skippedCheckDates(JSON.stringify([env.REPORT_EMAIL_START_DATE]));
@@ -43,7 +44,7 @@ async function providerState(env, child, provider, cutoff, window) {
     observation: verified ? JSON.parse(verified.observation) : null };
 }
 
-async function activeRecipients(env, child, revision = null) {
+export async function activeRecipients(env, child, revision = null) {
   const saved = (await rows(env.DB.prepare(`SELECT r.* FROM pilot_report_recipients r JOIN pilot_families f ON f.id=r.family_id
     WHERE r.family_id=? AND r.child_id=? AND f.revoked_at IS NULL AND (? IS NULL OR r.revision=?)`)
     .bind(child.family_id, child.id, revision, revision)))[0];
@@ -58,13 +59,13 @@ async function finish(env, child, date, state, now, reason = null, messageId = n
     .bind(state, iso(now), reason, messageId, child.family_id, child.id, date).run();
 }
 
-async function mappingSignature(env, child) {
+export async function mappingSignature(env, child) {
   return JSON.stringify(await rows(env.DB.prepare(`SELECT p.provider,p.connection_id,p.revision,p.mapping,c.status FROM pilot_child_providers p
     JOIN pilot_connections c ON c.id=p.connection_id AND c.revision=p.revision
     WHERE p.family_id=? AND p.child_id=? ORDER BY p.provider`).bind(child.family_id, child.id)));
 }
 
-async function deliverChild(env, child, date, now, window) {
+async function deliverChild(env, child, date, now, window, claimOnly) {
   const stored = (await rows(env.DB.prepare("SELECT * FROM pilot_report_deliveries WHERE family_id=? AND child_id=? AND check_date=?")
     .bind(child.family_id, child.id, date)))[0];
   const existing = stored?.state === 'waiting' ? null : stored;
@@ -90,22 +91,28 @@ async function deliverChild(env, child, date, now, window) {
     return 'waiting';
   }
   const message = buildReportEmail({ child, date, providers, cutoff });
+  const lease = randomToken();
+  const leaseHash = await digest(lease);
+  const expiresAt = iso(now + 120000);
   const claimed = await rows(env.DB.prepare(`INSERT INTO pilot_report_deliveries
-    (family_id,child_id,check_date,recipient_revision,state,cutoff,updated_at)
-    SELECT r.family_id,r.child_id,?,r.revision,'sending',?,? FROM pilot_report_recipients r JOIN pilot_families f ON f.id=r.family_id
+    (family_id,child_id,check_date,recipient_revision,state,cutoff,updated_at,lease_hash,lease_expires_at,mapping_signature)
+    SELECT r.family_id,r.child_id,?,r.revision,'sending',?,?,?,?,? FROM pilot_report_recipients r JOIN pilot_families f ON f.id=r.family_id
     WHERE r.family_id=? AND r.child_id=? AND r.revision=? AND f.revoked_at IS NULL
     ON CONFLICT(family_id,child_id,check_date) DO UPDATE SET state='sending',updated_at=excluded.updated_at,
-      attempts=pilot_report_deliveries.attempts+1,next_attempt_at=NULL,cutoff=excluded.cutoff,recipient_revision=excluded.recipient_revision
+      attempts=pilot_report_deliveries.attempts+1,next_attempt_at=NULL,cutoff=excluded.cutoff,recipient_revision=excluded.recipient_revision,
+      lease_hash=excluded.lease_hash,lease_expires_at=excluded.lease_expires_at,mapping_signature=excluded.mapping_signature
       WHERE pilot_report_deliveries.state='waiting' OR (pilot_report_deliveries.state='retry'
         AND pilot_report_deliveries.recipient_revision=excluded.recipient_revision
         AND pilot_report_deliveries.next_attempt_at<=excluded.updated_at) RETURNING attempts`)
-    .bind(date, cutoff, iso(now), child.family_id, child.id, saved.revision));
+    .bind(date, cutoff, iso(now), leaseHash, expiresAt, mapping, child.family_id, child.id, saved.revision));
   if (!claimed.length) return 'idle';
   // Last possible ownership/list check before the irreversible transport call.
   const current = await activeRecipients(env, child, saved.revision);
   if (!current || mapping !== await mappingSignature(env, child)) {
     await finish(env, child, date, 'skipped', now, 'settings_changed'); return 'skipped';
   }
+  if (claimOnly) return { kind: 'daily', familyId: child.family_id, childId: child.id, date, lease, expiresAt,
+    message: { from: env.REPORT_EMAIL_FROM, bcc: current.recipients, ...message } };
   try {
     // The current structured Workers API explicitly permits BCC-only mail:
     // at least one of to/cc/bcc, without adding any unsaved recipient.
@@ -131,7 +138,7 @@ async function deliverChild(env, child, date, now, window) {
   }
 }
 
-export async function runReportDelivery(env, now = Date.now()) {
+export async function runReportDelivery(env, now = Date.now(), { claimOnly = false } = {}) {
   if (!reportDeliveryEnabled(env)) return { status: 'not_enabled' };
   const date = dailyCheckSlot(now, skippedCheckDates(env.HOSTED_CHECK_SKIP_DATES));
   if (!date || date < env.REPORT_EMAIL_START_DATE) return { status: 'idle' };
@@ -141,6 +148,7 @@ export async function runReportDelivery(env, now = Date.now()) {
     WHERE state='sending' AND updated_at<=?`).bind(iso(now), iso(now - 300000)).run();
   await env.DB.prepare(`UPDATE pilot_report_deliveries SET state=CASE WHEN state='waiting' THEN 'skipped' ELSE 'failed' END,reason='delivery_window_elapsed',updated_at=?
     WHERE state IN ('retry','waiting') AND check_date<?`).bind(iso(now), date).run();
+  if (env.REPORT_EMAIL_TRANSPORT === 'ses-pull' && !claimOnly) return { status: 'awaiting_ses_runner' };
   const children = await rows(env.DB.prepare(`SELECT k.* FROM pilot_children k JOIN pilot_families f ON f.id=k.family_id
     JOIN pilot_report_recipients r ON r.family_id=k.family_id AND r.child_id=k.id
     WHERE f.revoked_at IS NULL AND json_array_length(r.recipients)>0
@@ -153,7 +161,8 @@ export async function runReportDelivery(env, now = Date.now()) {
   // Bound readiness queries AND sends. Persisted waiting timestamps rotate
   // unsent children fairly, rather than repeatedly scanning the same first ten.
   for (const child of children) {
-    const state = await deliverChild(env, child, date, now, checkDayWindow(now));
+    const state = await deliverChild(env, child, date, now, checkDayWindow(now), claimOnly);
+    if (typeof state === 'object') return { status: 'claimed', job: state };
     outcomes[state] = (outcomes[state] ?? 0) + 1;
   }
   return { status: 'processed', outcomes };

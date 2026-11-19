@@ -37,8 +37,15 @@ Attendance counts are periods, with excused/unspecified/unexcused codes explaine
 Long attendance categories show the latest 40 entries and say they are truncated.
 
 `src/cloudflare/report-delivery.js` runs before browser work on each minute tick,
-so a slow discovery job does not starve delivery. It uses Cloudflare's structured
-Email Sending binding. Parent credentials never enter this module. Provider
+so a slow discovery job does not starve delivery. The SES pull transport uses the AWS host's instance role, so no AWS access keys
+are stored in Cloudflare. An authenticated AWS service claims one report over
+HTTPS, re-authorizes immediately before sending, and records the SES message ID.
+The transport token is the existing trusted Source-runner machine credential;
+that host now also receives report content for confirmed children, including
+Schoology. This expanded application boundary is explicit in deployment approval.
+The IAM sending grant is independently restricted to the verified domain and
+exact From address. The native binding remains only as an injectable legacy test
+transport. Parent credentials never enter this module. Provider
 observations are selected through the current confirmed connection revision AND
 child mapping, scoped by family and child; older revoked/replaced mappings cannot
 supply records. Membership revocation and recipient revision are checked again
@@ -54,7 +61,7 @@ retry. Ten children per tick bound readiness queries and sender work, reserving 
 for collection. Waiting timestamps persist and rotate the queue fairly. Terminal
 rows are skipped in SQL; waiting households do not block other ready households.
 
-Cloudflare's binding exposes no idempotency key. Exactly-once delivery cannot be
+Neither the SES SendEmail API nor the legacy binding exposes an idempotency key. Exactly-once delivery cannot be
 claimed across the database/transport boundary. Only explicit quota/rate rejection
 codes, which did not accept mail, retry (at five and ten minutes; three attempts
 maximum, same local date). A crash, timeout, ambiguous reply or expired sending
@@ -69,27 +76,43 @@ to the same recipients when migrating a household. No test sends are automatic.
 
 ## Configuration, rollout and rollback
 
-1. Apply migration 0007. Keep `REPORT_EMAIL_ENABLED=false` while validating.
-2. Onboard the chosen sender domain in Cloudflare Email Sending (Workers Paid),
-   verifying SPF/DKIM and reviewing DMARC without disrupting existing mail. Disable
-   email body preview for school-record privacy where supported. Keep suppression
-   protections; do not silently drop recipients. Domain ownership and available
-   sending quota must be verified independently of application tests.
-3. Configure `REPORT_EMAIL` with `bindings.sendEmail()`, `REPORT_EMAIL_FROM` with
-   the verified sender, and `REPORT_EMAIL_START_DATE` with the first local date to
-   send. These deployment values contain no repository personal identity. Leave
-   unrelated remote secret bindings intact. Do not use a Gmail address as a From
-   identity for Cloudflare Email Sending; use an owned, verified domain.
-4. Deploy the reviewed Worker and set `REPORT_EMAIL_ENABLED=true` only after the
-   sender is ready. Set a future local date to prevent an activation-night backfill.
-   Ensure families have intentionally saved their own lists. Confirm a real
-   provider message ID and inbox receipt during an authorized acceptance test;
-   unit/UI tests use only a mocked transport, not synthetic external addresses.
-5. Monitor ledger states and Cloudflare Email activity/bounces without logging
-   school bodies, addresses or credentials. The initial binding response establishes
-   acceptance only; bounce/delivery webhooks are a future enhancement.
-6. To pause, disable `REPORT_EMAIL_ENABLED`. The collector continues. Preserve the
-   ledger on rollback to avoid a duplicate day; older versions ignore the table.
+1. Apply migrations 0007 and 0008, retaining `REPORT_EMAIL_ENABLED=false`.
+2. Verify the SES domain's DKIM and custom MAIL FROM status in the sending region.
+   Keep existing DNS/mail delivery. Check SES production access and account-level
+   bounce/complaint suppression. Production access needs explicit operator consent
+   and AWS approval; an approved request is not itself proof sending is enabled.
+3. Configure `REPORT_EMAIL_TRANSPORT=ses-pull`, `REPORT_EMAIL_FROM`, and
+   `REPORT_EMAIL_START_DATE` as private deployment settings. Cloudflare needs no
+   SES keys or native Send Email binding. Preserve unrelated secret bindings.
+4. On AWS, approve the restricted policy from `report-delivery-policy.yaml`, scoped
+   to the existing runner role, verified domain and exact sender. Deploy the Node
+   SES client and `report-delivery.service`/timer. The service reuses the existing
+   origin and machine-token parameters. No parent or AWS credentials are written
+   into source, logs or arguments. The SDK uses the instance role with one attempt;
+   SDK automatic retries are disabled to avoid duplicate sends after ambiguous errors.
+5. A test is an operator-created expiring `pilot_report_email_tests` row. It runs
+   while regular delivery is off and contains no student records. Use a recipient
+   allowed by the SES account's current state. Confirm the ledger's SES message ID
+   and actual inbox receipt before enabling regular mail. Test rows expire and are
+   not automatically resent. No public or family API can create a test or nominate
+   arbitrary recipients.
+6. Enable `REPORT_EMAIL_ENABLED=true` only after the test and required production
+   approval. Confirm that each family intentionally saved its per-child lists.
+   The minute cron maintains stale delivery state; the AWS timer claims one ready
+   email every 15 seconds independently of the slower Source browser service.
+7. Claim/authorize/complete routes require the scoped machine credential and exact
+   HTTPS origin, refuse redirects, and use two-minute hashed leases. Completion
+   checks the full family/child/day/lease identity. A stale completion or replay
+   cannot update another child. Recipient revisions, family revocation and current
+   portal mappings are checked immediately before transport. An email accepted
+   after a settings change is recorded accurately, without restoring account access.
+8. To pause, disable `REPORT_EMAIL_ENABLED`; the collector continues. Disable the
+   AWS delivery timer to also pause test processing. Preserve the ledger on rollback.
+   Expired or ambiguous sending claims become unknown rather than automatically resent.
 
-References: [Workers API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/),
-[domain configuration](https://developers.cloudflare.com/email-service/configuration/domains/).
+Transport acceptance is not proof of inbox delivery. SES account-level suppression
+handles hard bounces and complaints; application delivery/bounce webhooks are a
+future enhancement. A non-ok sender result never claims success.
+
+References: [SES SendEmail](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html),
+[SES domain authentication](https://docs.aws.amazon.com/ses/latest/dg/creating-identities.html).

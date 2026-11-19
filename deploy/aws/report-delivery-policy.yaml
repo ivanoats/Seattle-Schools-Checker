@@ -1,0 +1,26 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Restrict the existing hosted runner to the chosen SES report sender
+Parameters:
+  RunnerRoleName:
+    Type: String
+  SenderDomain:
+    Type: String
+    AllowedPattern: '^[a-z0-9.-]+$'
+  SenderAddress:
+    Type: String
+    AllowedPattern: '^[^@ ]+@[^@ ]+$'
+Resources:
+  ReportSenderPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: send-school-reports-only
+      Roles: [!Ref RunnerRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: ses:SendEmail
+            Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SenderDomain}
+            Condition:
+              StringEquals:
+                ses:FromAddress: !Ref SenderAddress

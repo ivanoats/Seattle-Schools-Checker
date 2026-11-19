@@ -1,3 +1,5 @@
+import { handleSesRunner } from '../src/cloudflare/ses-runner.js';
+import { runHostedMail } from '../scripts/mail-runner/run.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
@@ -168,4 +170,94 @@ test('readiness is bounded and rotates waiting children so a later ready child i
     assert.ok(queries < 200, `readiness and sends must leave room for collection: ${queries}`);
   }
   assert.equal(env.sent.length, 4, 'ready siblings after 25 waiting children are eventually reached');
+});
+
+
+function sesTransport(env, time = now, before = () => {}) {
+  env.REPORT_EMAIL_TRANSPORT='ses-pull'; env.APP_ORIGIN='https://pilot.example'; env.SOURCE_DISCOVERY_TOKEN='a'.repeat(64);
+  return async (url, options) => {
+    assert.equal(options.redirect,'error');
+    const action=new URL(url).pathname.split('/').at(-1);
+    const body=JSON.parse(options.body);
+    before(action,body);
+    return handleSesRunner(new Request(url,options),env,action,()=>Promise.resolve(body),()=>time);
+  };
+}
+
+test('SES runner claims one child, authorizes and records acceptance once, using BCC and no AWS keys', async () => {
+  const env=await environment(); const requests=sesTransport(env); const sent=[];
+  const client={send: command=>{sent.push(command.input);return Promise.resolve({MessageId:'accepted-123'});}};
+  const options={origin:env.APP_ORIGIN,token:env.SOURCE_DISCOVERY_TOKEN,client,request:requests,clock:()=>now};
+  const results=await Promise.all([runHostedMail(options),runHostedMail(options)]);
+  assert.ok(results.every(value=>value.status==='sent'));
+  assert.equal(sent.length,2); assert.notDeepEqual(sent[0].Destination,sent[1].Destination);
+  assert.ok(sent.every(message=>message.Destination.BccAddresses.length===1 && message.Content.Simple.Body.Text.Data));
+  assert.equal(deliveries(env).filter(row=>row.state==='sent').length,2);
+  assert.equal((await runReportDelivery(env,now)).status,'awaiting_ses_runner');
+});
+
+test('SES test runs while daily mail is disabled and contains no school records', async () => {
+  const env=await environment(); env.REPORT_EMAIL_ENABLED='false'; const request=sesTransport(env); const sent=[];
+  const id=crypto.randomUUID(); env.sqlite.prepare("INSERT INTO pilot_report_email_tests (id,recipient,state,created_at,expires_at) VALUES (?,?,'queued',?,?)")
+    .run(id,'parent@example.com',iso(now),iso(now+1800000));
+  const options={origin:env.APP_ORIGIN,token:env.SOURCE_DISCOVERY_TOKEN,request,clock:()=>now,
+    client:{send: command=>{sent.push(command.input);return Promise.resolve({MessageId:'test-accepted'});}}};
+  assert.equal((await runHostedMail(options)).status,'sent');
+  assert.equal((await runHostedMail(options)).status,'idle');
+  assert.equal(sent.length,1); assert.match(sent[0].Content.Simple.Subject.Data,new RegExp(id));
+  assert.doesNotMatch(sent[0].Content.Simple.Body.Text.Data,/French|one first|two/);
+  assert.equal(env.sqlite.prepare('SELECT state FROM pilot_report_email_tests WHERE id=?').get(id).state,'sent');
+});
+
+test('SES rechecks membership and recipient revision immediately before sending', async () => {
+  for (const change of ['revoke','recipients','mapping','pause']) {
+    const env=await environment(); let sends=0;
+    const request=sesTransport(env,now,(action,body)=>{
+      if(action!=='authorize')return;
+      if(change==='checks')env.HOSTED_CHECKS_ENABLED='false';
+      if(change==='pause')env.REPORT_EMAIL_ENABLED='false';
+      if(change==='revoke')env.sqlite.prepare('UPDATE pilot_families SET revoked_at=? WHERE id=?').run(iso(now),body.familyId);
+      if(change==='recipients')env.sqlite.prepare("UPDATE pilot_report_recipients SET revision='changed' WHERE family_id=? AND child_id=?").run(body.familyId,body.childId);
+      if(change==='mapping')env.sqlite.prepare("UPDATE pilot_child_providers SET mapping='{}' WHERE family_id=? AND child_id=?").run(body.familyId,body.childId);
+    });
+    const result=await runHostedMail({origin:env.APP_ORIGIN,token:env.SOURCE_DISCOVERY_TOKEN,request,clock:()=>now,
+      client:{send:()=>{sends++;return Promise.resolve({MessageId:'not-expected'});}}});
+    assert.equal(result.status,'authorization_changed');assert.equal(sends,0);
+    assert.equal(deliveries(env)[0].state,'skipped');
+  }
+});
+
+test('SES job leases reject forgery, replay, expiry and wrong machine tokens', async () => {
+  const env=await environment();const request=sesTransport(env);
+  const claim=await request('https://pilot.example/v1/report-email/claim',{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${env.SOURCE_DISCOVERY_TOKEN}`},body:'{}'});
+  const job=(await claim.json()).job;
+  const call=(body,time=now,token=env.SOURCE_DISCOVERY_TOKEN)=>handleSesRunner(new Request('https://pilot.example/v1/report-email/complete',
+    {method:'POST',headers:{Authorization:`Bearer ${token}`}}),env,'complete',()=>Promise.resolve(body),()=>time);
+  assert.equal((await call({...job,lease:'b'.repeat(64),state:'sent',messageId:'x'})).status,409);
+  assert.equal((await call({...job,childId:'outsider',state:'sent',messageId:'x'})).status,409);
+  assert.equal((await call({...job,state:'sent',messageId:'x'},now,'b'.repeat(64))).status,404);
+  assert.equal((await call({...job,state:'sent',messageId:'x'})).status,200);
+  assert.equal((await call({...job,state:'sent',messageId:'x'})).status,409);
+  const another=(await (await request('https://pilot.example/v1/report-email/claim',{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${env.SOURCE_DISCOVERY_TOKEN}`},body:'{}'})).json()).job;
+  assert.equal((await call({...another,state:'sent',messageId:'x'},now+120001)).status,409);
+});
+
+test('SES throttling retries only a definite rejection; uncertain acceptance never retries', async () => {
+  for (const [name,state] of [['TooManyRequestsException','retry'],['MessageRejected','failed'],['TimeoutError','unknown']]) {
+    const env=await environment(); const request=sesTransport(env);let sends=0;
+    const result=await runHostedMail({origin:env.APP_ORIGIN,token:env.SOURCE_DISCOVERY_TOKEN,request,clock:()=>now,
+      client:{send:()=>{sends++;return Promise.reject(Object.assign(new Error('not logged'),{name}));}}});
+    assert.equal(result.status,state);assert.equal(sends,1);assert.equal(deliveries(env)[0].state,state);
+  }
+});
+
+
+test('a throttled test fails explicitly without a retry or ambiguous state', async () => {
+  const env=await environment();env.REPORT_EMAIL_ENABLED='false';const request=sesTransport(env);
+  const id=crypto.randomUUID();env.sqlite.prepare("INSERT INTO pilot_report_email_tests (id,recipient,state,created_at,expires_at) VALUES (?,?,'queued',?,?)")
+    .run(id,'parent@example.com',iso(now),iso(now+1800000));
+  const result=await runHostedMail({origin:env.APP_ORIGIN,token:env.SOURCE_DISCOVERY_TOKEN,request,clock:()=>now,
+    client:{send:()=>Promise.reject(Object.assign(new Error('rate'),{name:'TooManyRequestsException'}))}});
+  assert.equal(result.status,'failed');
+  assert.equal(env.sqlite.prepare('SELECT state FROM pilot_report_email_tests WHERE id=?').get(id).state,'failed');
 });
