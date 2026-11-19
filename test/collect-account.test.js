@@ -72,7 +72,7 @@ test('a later child timeout preserves the first verified observation', async () 
   let pending = null;
   const browser = { close: () => { pending?.reject(new Error('Browser closed')); return Promise.resolve(); },
     newContext: () => Promise.resolve({ close: () => Promise.resolve(), route: () => Promise.resolve(),
-      newPage: () => Promise.resolve({ setDefaultTimeout() {}, goto: () => Promise.resolve(),
+      newPage: () => Promise.resolve({ setDefaultTimeout(value) { assert.equal(value, 10000); }, goto: () => Promise.resolve(),
         url: () => 'https://app.schoology.com/parent/home', locator: selector => ({
           isVisible: () => Promise.resolve(selector === '#child-session-banner'),
         }) }) }) };
