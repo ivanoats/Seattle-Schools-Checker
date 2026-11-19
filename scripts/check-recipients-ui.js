@@ -36,6 +36,8 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const recipientRead = Promise.withResolvers(); const releaseRecipients = Promise.withResolvers();
+  let delayFirstRead = true;
   let delayNextSave = false; let savedSignal = null; let releaseSave = null;
   await page.route('**/*', async route => {
     const browserRequest = route.request(); const url = new URL(browserRequest.url());
@@ -45,6 +47,9 @@ try {
       ...(browserRequest.method() === 'POST' ? { body: browserRequest.postData() } : {}) });
     const response = url.pathname.startsWith('/api/')
       ? await handlePilot(request, env, { keySet: keys.publicKey }) : await worker.fetch(request, env);
+    if (url.pathname.endsWith('/report-recipients') && request.method === 'GET' && delayFirstRead) {
+      delayFirstRead = false; recipientRead.resolve(); await releaseRecipients.promise;
+    }
     if (url.pathname.endsWith('/report-recipients') && request.method === 'POST' && delayNextSave) {
       delayNextSave = false; savedSignal.resolve(); await releaseSave.promise;
     }
@@ -56,6 +61,10 @@ try {
   const save = page.getByRole('button', { name: 'Save recipients', exact: true });
   const status = page.locator('#recipient-status');
   await picker.selectOption('alex-one');
+  await recipientRead.promise;
+  await page.getByRole('heading', { name: 'Alex One’s saved school update', exact: true }).waitFor({ timeout: 2000 });
+  assert.equal(await input.isDisabled(), true, 'a stalled settings request cannot hide the school report');
+  releaseRecipients.resolve();
   await page.getByRole('heading', { name: 'Report recipients for Alex One', exact: true }).waitFor();
   await input.fill('child+school@example.com, partner@example.net\nCHILD+SCHOOL@example.com');
   await save.click();

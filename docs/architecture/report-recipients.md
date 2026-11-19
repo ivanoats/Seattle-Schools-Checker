@@ -39,7 +39,9 @@ Each successful write creates a new opaque revision. Saving with a stale revisio
 returns a conflict and preserves the newer list. The UI leaves the draft editable
 for copying, disables another save, and offers an explicit reload. Child switches
 and late save responses cannot replace another child's editor. Refreshing the
-school report preserves unsaved recipient edits for the current child.
+school report preserves unsaved recipient edits for the current child. Recipient
+loading runs independently, so a stalled settings request cannot hide the school
+report.
 
 ## Validation and rollout
 

@@ -320,8 +320,9 @@ export function pilotClient() {
         await write;
       }
       if (version !== generation) return;
-      await loadRecipients(childId);
-      if (version !== generation) return;
+      loadRecipients(childId).catch(() => {
+        if (byId('child').value === childId) byId('recipient-status').textContent = 'We could not load saved recipients. Reload the saved list before editing.';
+      });
       const data = await api(`report?childId=${encodeURIComponent(childId)}`);
       if (version !== generation) return;
       render(data); status('Saved report loaded. Check the verification times below.');
