@@ -457,7 +457,7 @@ test('matching another portal, reconnecting, and another parent preserve edited 
     const env=await environment();
     const source=(await discoverForParent(env,'source'))[0];
     const saved=await (await call(env,'connections/source/confirm',{candidateId:source.id})).json();
-    let settings=await (await call(env,`report-recipients?childId=${saved.childId}`)).json();
+    const settings=await (await call(env,`report-recipients?childId=${saved.childId}`)).json();
     assert.equal((await call(env,'report-recipients',{childId:saved.childId,revision:settings.revision,recipients})).status,200);
     const before=env.sqlite.prepare('SELECT * FROM pilot_report_recipients').get();
     const school=(await discoverForParent(env,'schoology'))[0];
