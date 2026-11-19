@@ -3,12 +3,12 @@ export const maxReportRecipients = 10;
 function emailAddress(value) {
   if (typeof value !== 'string') throw new Error('invalid_email_address');
   const address = value.trim();
-  if (address.length > 254 || /[\s<>(),;:\[\]\\"]/.test(address)) throw new Error('invalid_email_address');
+  if (address.length > 254 || /[\s<>(),;:"]/.test(address)) throw new Error('invalid_email_address');
   const parts = address.split('@');
   if (parts.length !== 2) throw new Error('invalid_email_address');
   const [local, domain] = parts;
   if (!local || local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')
-    || !/^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+$/.test(local)) throw new Error('invalid_email_address');
+    || !/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)) throw new Error('invalid_email_address');
   const labels = domain.split('.');
   if (labels.length < 2 || labels.some(label => !/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label))) {
     throw new Error('invalid_email_address');
