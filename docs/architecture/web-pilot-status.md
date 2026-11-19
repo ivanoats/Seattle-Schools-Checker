@@ -36,11 +36,11 @@ sign-in and child discovery still need verification before another family joins.
 - Access is activated with email one-time PIN and one explicitly allowed pilot
   identity. Signed-out `/app` and `/api/pilot/children` requests redirect to
   Access. No second household has been invited. A seven-day invitation for the
-  operator's test identity is prepared privately, outside the repository.
+  operator's test identity was accepted; no invitation tokens are in the repository.
 - A Browser Run smoke test loaded Schoology's public login form and found the
   password input. Schoology account connection is enabled for the private live
-  test; successful unattended authentication and production child discovery
-  are not yet verified for this pipeline.
+  test. The subsequent live parent retry completed automated sign-in and child
+  discovery successfully after the static-header request policy correction.
 - The AWS operator permission blocker was resolved. The Oregon probe host now
   runs a dedicated discovery service and 15-second polling timer. Its instance
   role has Session Manager support and an explicit deny on reading Parameter
@@ -53,13 +53,16 @@ sign-in and child discovery still need verification before another family joins.
   Both provider connection forms are now enabled for the first private test.
 - The instance remains running during pilot onboarding. The legacy power-off
   service and old scheduled run mode are not enabled on this host.
-- No school passwords or student records were read during deployment. The
-  existing local checks and scheduled report workflow were not changed.
+- Both provider connections now show `ready`, with no failure reason. Parent
+  confirmation linked both to the same selected child; the saved mappings were
+  independently read back. No password values or raw session data were retrieved
+  by the agent. Existing local checks and report workflows were not changed.
 
 Evidence: migration records, Worker deployment and secret-binding names,
 Access application/policy responses, signed-out HTTP smoke tests, Browser Run
-login-form rendering, and AWS installation, sandbox probe and service/timer verification. Deployment does not
-establish successful account connection or recurring multi-family reporting.
+login-form rendering, AWS installation and sandbox/service verification, and
+D1 connection/mapping readback after parent confirmation. Successful onboarding
+does not establish recurring multi-family collection or reporting.
 
 ## Required before another household can onboard
 
@@ -67,9 +70,9 @@ establish successful account connection or recurring multi-family reporting.
 | --- | --- |
 | Verify live AWS/Cloudflare state | Authenticated deployment status and approved deployed smoke test |
 | Deploy Access and invitation flow | Parent opens an invitation and receives an email code from a phone |
-| Family-scoped provider accounts (implemented, deployment pending) | Encrypted credentials, revocation/deletion, isolated sessions and sign-in limits tested synthetically |
-| Source discovery on AWS (implemented, live verification pending) | Deploy the discovery service; verify the production child menu and each full identity |
-| Schoology on Browser Run (implemented, live verification pending) | Deploy the binding/consumer; verify production child menu and unsupported challenge behavior |
+| Family-scoped provider accounts (deployed, first parent verified) | Encrypted credentials, revocation/deletion, isolated sessions and sign-in limits tested synthetically |
+| Source discovery on AWS (first parent verified) | Deploy the discovery service; verify the production child menu and each full identity |
+| Schoology on Browser Run (first parent verified) | Deploy the binding/consumer; verify production child menu and unsupported challenge behavior |
 | Trusted child discovery ingestion (implemented) | Verify deployed provider tokens, leases and identity-bound confirmation |
 | Multi-family collection | Replace single-family ingest configuration with family/account-scoped job claims and runner authorization |
 | Hosted schedule and reports | School-calendar-aware jobs, comparisons and private PDFs independent of local Codex |
@@ -124,7 +127,7 @@ student records are used by these checks.
 - [Access email one-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
 - [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/)
 
-The first rollout passed 58 tests and both browser suites. SonarCloud,
+The corrected rollout passed 64 tests and both browser suites. SonarCloud,
 GitGuardian and Socket checks passed after the temporary-directory and startup
 promise findings were fixed. DeepSource JavaScript still reports quality
 findings; PR #5 is not represented as fully green or ready to merge.

@@ -118,16 +118,15 @@ revocation, rendered child menus and duplicate first names. The browser check
 uses the actual authenticated API and SQLite to connect both services, confirm
 a child, explicitly match portals, select that child and disconnect.
 
-Live child-menu verification is still required. The approved local helpers
-successfully completed fresh Source/Schoology checks on November 18, but the
-separate structural inspector could not reuse their authenticated sessions.
-No live menu structure was verified by that inspection. The adapters accept
-Source student-list links and Schoology parent-index child links only, with full
-heading/banner verification. Unsupported layouts fail closed; synthetic fixtures
-are not evidence that the current production child menu uses those structures.
-Do not invite a second household until both live adapters and both deployed
-runners pass. Password values and raw session data were never retrieved by the
-agent; the approved helpers handled their own existing scoped credentials.
+The first parent's live child-menu verification passed on November 18, 2026.
+Source and Schoology both returned verified child candidates through their
+separate deployed runners. Parent confirmation linked both providers to the
+same selected child; D1 readback showed both connections `ready`, no failure
+reason, and both mappings on that child's selected record. Schoology completed
+at 17:41:11 America/Los_Angeles after the static-header policy correction.
+No password values or raw session data were retrieved by the agent. Unsupported
+layouts and authentication challenges still fail closed. Another household,
+live revocation and recurring report delivery remain separate acceptance gates.
 
 After onboarding, scheduled multi-family grade/assignment collection and hosted
 reports remain a separate step. This branch stores provider mappings but does
@@ -176,7 +175,7 @@ name/banner mismatch case, and preserve the new path through confirmation.
 
 The deployed Source connection and saved child selection were verified in D1
 after the first parent retry. Schoology's modern menu was inspected in normal
-Chrome; its corrected cloud discovery still requires an explicit parent retry.
+Chrome before the subsequent cloud request-policy correction.
 
 The first modern-menu cloud retry still failed despite the correct selector.
 A live DOM inspection then identified Schoology's synchronous header bundle at
@@ -189,5 +188,6 @@ endpoints and POST requests remain blocked; the password destination remains
 `https://app.schoology.com/login`. Discovery waits for the identified header's
 account control before inspecting its menu. A regression test now loads the
 external header through the real request policy rather than assuming it was
-already present in an inline fixture. Another cloud parent retry is needed to
-verify the complete corrected path.
+already present in an inline fixture. The subsequent explicit parent retry
+passed in Cloudflare, and its confirmed mapping was linked to the existing
+selected child. Both providers were verified `ready` in the saved state.
