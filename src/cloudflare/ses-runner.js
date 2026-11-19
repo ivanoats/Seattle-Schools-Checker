@@ -45,7 +45,7 @@ async function liveJob(env, input, now) {
   return { kind: 'daily', key: [saved.family_id,saved.child_id,saved.check_date,hash], allowed, attempts: saved.attempts };
 }
 
-async function updateJob(env, job, state, messageId, now) {
+function updateJob(env, job, state, messageId, now) {
   if (job.kind === 'test') {
     if (state === 'retry') state = 'failed';
     return env.DB.prepare("UPDATE pilot_report_email_tests SET state=?,message_id=? WHERE id=? AND lease_hash=? AND state='sending'")
@@ -54,7 +54,7 @@ async function updateJob(env, job, state, messageId, now) {
   if (state === 'retry' && job.attempts >= 3) state = 'failed';
   return env.DB.prepare(`UPDATE pilot_report_deliveries SET state=?,message_id=?,updated_at=?,reason=?,next_attempt_at=?
     WHERE family_id=? AND child_id=? AND check_date=? AND lease_hash=? AND state='sending'`)
-    .bind(state,messageId,iso(now),state==='sent'?null:'ses_delivery_'+state,state==='retry'?iso(now+job.attempts*300000):null,...job.key).run();
+    .bind(state,messageId,iso(now),state==='sent'?null:`ses_delivery_${state}`,state==='retry'?iso(now+job.attempts*300000):null,...job.key).run();
 }
 
 export async function handleSesRunner(request, env, action, readBody, clock = Date.now) {
@@ -70,7 +70,7 @@ export async function handleSesRunner(request, env, action, readBody, clock = Da
       return reply(200,result.status==='claimed'?result:{status:'idle'});
     }
     const input = await readBody(request); const now = clock();
-    return processJobAction(env,action,input,now);
+    return await processJobAction(env,action,input,now);
   } catch { return reply(503,{status:'email_runner_unavailable'}); }
 }
 

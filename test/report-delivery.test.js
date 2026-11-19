@@ -173,13 +173,13 @@ test('readiness is bounded and rotates waiting children so a later ready child i
 });
 
 
-function sesTransport(env, time = now, before = () => {}) {
+function sesTransport(env, time = now, before = null) {
   env.REPORT_EMAIL_TRANSPORT='ses-pull'; env.APP_ORIGIN='https://pilot.example'; env.SOURCE_DISCOVERY_TOKEN='a'.repeat(64);
-  return async (url, options) => {
+  return (url, options) => {
     assert.equal(options.redirect,'error');
     const action=new URL(url).pathname.split('/').at(-1);
     const body=JSON.parse(options.body);
-    before(action,body);
+    if (before) before(action,body);
     return handleSesRunner(new Request(url,options),env,action,()=>Promise.resolve(body),()=>time);
   };
 }
@@ -260,4 +260,15 @@ test('a throttled test fails explicitly without a retry or ambiguous state', asy
     client:{send:()=>Promise.reject(Object.assign(new Error('rate'),{name:'TooManyRequestsException'}))}});
   assert.equal(result.status,'failed');
   assert.equal(env.sqlite.prepare('SELECT state FROM pilot_report_email_tests WHERE id=?').get(id).state,'failed');
+});
+
+
+test('SES asynchronous storage failures return a sanitized unavailable response', async () => {
+  const env=await environment();sesTransport(env);
+  env.DB.prepare=()=>{throw new Error('synthetic private database detail');};
+  const response=await handleSesRunner(new Request('https://pilot.example/v1/report-email/authorize',
+    {method:'POST',headers:{Authorization:`Bearer ${env.SOURCE_DISCOVERY_TOKEN}`}}),env,'authorize',
+    ()=>Promise.resolve({kind:'test',id:crypto.randomUUID(),lease:'a'.repeat(64)}),()=>now);
+  assert.equal(response.status,503);
+  assert.deepEqual(await response.json(),{status:'email_runner_unavailable'});
 });

@@ -47,7 +47,7 @@ function itemLines(item, signals = []) {
   for (const signal of signals) for (const metadata of itemMetadata(signal.item)) {
     if (!seen.has(metadata)) { lines.push(`    ${signal.label}: ${metadata}`); seen.add(metadata); }
   }
-  if (item.url && item.url.startsWith('https://app.schoology.com/')) lines.push(`    ${item.url}`);
+  if (item.url?.startsWith('https://app.schoology.com/')) lines.push(`    ${item.url}`);
   return lines;
 }
 
