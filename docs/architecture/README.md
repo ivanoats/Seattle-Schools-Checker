@@ -19,3 +19,5 @@ The ADL is a lightweight JSON architecture model. It describes system
 boundaries, components, relationships, and active integrations. C4 diagrams
 are maintained alongside it in Markdown. Decision records distinguish
 accepted scope from proposed implementation choices.
+
+- [Recurring hosted school checks](recurring-hosted-checks.md): weekday scheduling, confirmed children, isolated runners and retained observations.

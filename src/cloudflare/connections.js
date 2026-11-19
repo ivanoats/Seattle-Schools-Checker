@@ -146,8 +146,10 @@ export async function claimDiscovery(env, provider, now = Date.now()) {
     WHERE id = (SELECT j.id FROM pilot_discovery_jobs j JOIN pilot_connections c ON c.id = j.connection_id
       JOIN pilot_families f ON f.id = c.family_id WHERE j.state = 'queued' AND j.expires_at >= ?
       AND c.provider = ? AND c.revision = j.revision AND c.status = 'queued' AND f.revoked_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM pilot_check_jobs busy WHERE busy.connection_id = c.id
+        AND busy.state = 'running' AND busy.lease_expires_at > ?)
       ORDER BY j.created_at, j.id LIMIT 1) AND state = 'queued' RETURNING id, connection_id, revision`)
-    .bind(leaseHash, iso(now + 120000), iso(now + 120000), provider));
+    .bind(leaseHash, iso(now + 120000), iso(now + 120000), provider, iso(now)));
   if (!claimed.length) return null;
   const job = claimed[0];
   const connection = (await rows(env.DB.prepare(`SELECT c.* FROM pilot_connections c JOIN pilot_families f ON f.id = c.family_id

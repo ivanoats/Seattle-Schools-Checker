@@ -6,7 +6,7 @@ import { signInSchoology } from '../scripts/browser-run/schoology-login.js';
 
 // Every job owns a fresh browser/context; no family shares cookies or tabs.
 // launch is supplied by the stock-Chrome host or the Browser Run Worker.
-export async function discoverAccount(provider, credentials, launch, timeoutMs = 75000) {
+export async function withPortalSession(provider, credentials, launch, read, timeoutMs = 75000) {
   let browser = null; let context = null; let timer = null; let expired = false;
   try {
     if (!['source', 'schoology'].includes(provider)) throw new CheckError('invalid_provider');
@@ -33,8 +33,9 @@ export async function discoverAccount(provider, credentials, launch, timeoutMs =
         || (provider === 'schoology' && isSchoologyStaticAsset(url.href)));
       if (allowed) await route.continue(); else await route.abort();
     });
-    const children = await (provider === 'source' ? discoverSourceChildren : discoverSchoologyChildren)(page);
-    return { status: 'ok', children };
+    const output = await read(page);
+    if (expired) throw new CheckError('discovery_expired');
+    return output;
   } catch (error) {
     if (expired) return { status: 'attention', reason: 'discovery_expired' };
     return { status: 'attention', reason: error instanceof CheckError && /^[a-z_]{1,64}$/.test(error.status)
@@ -45,4 +46,10 @@ export async function discoverAccount(provider, credentials, launch, timeoutMs =
     await context?.close().catch(() => null);
     await browser?.close().catch(() => null);
   }
+}
+
+
+export function discoverAccount(provider, credentials, launch, timeoutMs = 75000) {
+  return withPortalSession(provider, credentials, launch, async page => ({ status: 'ok',
+    children: await (provider === 'source' ? discoverSourceChildren : discoverSchoologyChildren)(page) }), timeoutMs);
 }

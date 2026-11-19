@@ -29,6 +29,8 @@ export default defineConfig({
       SCHOOLOGY_DISCOVERY_TOKEN: bindings.secret(),
       SOURCE_CONNECTIONS_ENABLED: bindings.secret(),
       SCHOOLOGY_CONNECTIONS_ENABLED: bindings.secret(),
+      HOSTED_CHECKS_ENABLED: bindings.secret(),
+      HOSTED_CHECK_SKIP_DATES: bindings.secret(),
       BROWSER: bindings.browser(),
     },
   },

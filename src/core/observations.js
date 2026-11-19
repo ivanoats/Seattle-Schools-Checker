@@ -13,6 +13,7 @@ export function observeSchool({ provider, child, report, observedAt, assignmentR
         course: course.course,
         period: course.period,
         semester: course.semester,
+        assignmentStatus: course.assignmentStatus ?? null,
         missing: assignmentRows?.[index]?.filter(row => row.missing && !row.excluded)
           ?? course.missing?.filter(item => !item.excluded) ?? null,
         rows: assignmentRows?.[index] ?? null,

@@ -13,4 +13,4 @@ DISCOVERY_APP_ORIGIN="$(setting discovery-app-origin)"
 SOURCE_DISCOVERY_TOKEN="$(setting source-discovery-token)"
 export DISCOVERY_APP_ORIGIN SOURCE_DISCOVERY_TOKEN
 cd /opt/source-runner
-exec /usr/bin/node scripts/source-runner/discover.js
+exec /usr/bin/node scripts/source-runner/hosted.js

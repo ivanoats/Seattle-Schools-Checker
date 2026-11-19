@@ -41,8 +41,8 @@ sequenceDiagram
 
 The Source runner uses stock Chrome on the AWS Linux host. The Schoology
 consumer runs in a Worker scheduled invocation with a Browser Run binding.
-The minute trigger is for pending onboarding jobs, not the daily school
-report schedule. Each invocation claims at most one Schoology job. Browser
+The minute trigger processes pending onboarding jobs and, when separately
+enabled, [recurring school checks](recurring-hosted-checks.md). Each invocation claims at most one Schoology job. Browser
 work is not placed in HTTP `waitUntil`, whose post-response window is shorter.
 
 Every job gets a new browser/context and closes it after discovery; no sessions,

@@ -70,6 +70,7 @@ export function pilotClient() {
   }
   const connectionMessage = reason => ({
     credentials_required: 'Enter your parent username and password.',
+    check_needs_attention: 'A scheduled check needs your attention. Reconnect this account to verify sign-in and child selection.',
     try_again_later: 'Please wait a minute before trying another sign-in.',
     discovery_in_progress: 'A sign-in check is already in progress.',
     discovery_expired: 'The check timed out. Try again when the connection is available.',
@@ -185,7 +186,7 @@ export function pilotClient() {
     byId('report').replaceChildren();
     const source = data.report.source;
     const summary = section(`${data.child.displayName}’s saved school update`);
-    node('p', 'These are saved records, not a live portal session. All times below are Seattle time.', summary);
+    node('p', 'These are saved records, not a live portal session. Connected children are checked on weekdays after 5 p.m. Seattle time, plus an initial check when connected. Check the verification times below.', summary);
     for (const p of data.providers) {
       node('h3', p.provider === 'source' ? 'The Source' : 'Schoology', summary);
       node('p', `Last verified: ${date(p.observedAt)}. Latest attempt: ${date(p.lastAttemptAt)}.`, summary);

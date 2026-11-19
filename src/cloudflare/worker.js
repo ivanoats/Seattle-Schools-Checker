@@ -2,12 +2,15 @@ import { handleLatestChecks, handleSourceIngest } from './ingest.js';
 import { handlePilot, privateHeaders, readBody } from './pilot.js';
 import { pilotHtml, pilotCss, pilotClient } from './pilot-ui.js';
 import { handleDiscoveryRunner } from './connections.js';
-import { runSchoologyDiscovery } from './schoology-discovery.js';
+import { runHostedSchedule } from './hosted-schedule.js';
+import { handleHostedRunner } from './hosted-checks.js';
 
 export default {
   fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith('/api/pilot/')) return handlePilot(request, env);
+    const checkRunner = pathname.match(/^\/v1\/collection\/source\/(claim|complete)$/);
+    if (checkRunner) return handleHostedRunner(request, env, checkRunner[1], req => readBody(req, 1048576));
     const runner = pathname.match(/^\/v1\/discovery\/(source|schoology)\/(claim|complete)$/);
     if (runner) return handleDiscoveryRunner(request, env, runner[1], runner[2], req => readBody(req, 65536));
     const assets = { '/app': [pilotHtml, 'text/html'], '/app.css': [pilotCss, 'text/css'],
@@ -22,6 +25,6 @@ export default {
     return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
   },
   scheduled(event, env, ctx) {
-    ctx.waitUntil(runSchoologyDiscovery(env));
+    ctx.waitUntil(runHostedSchedule(env));
   },
 };
