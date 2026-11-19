@@ -17,6 +17,7 @@ export const pilotHtml = `<!doctype html><html lang="en"><head>
 <button id="refresh" type="button">Refresh saved report</button></section>
 <section id="connections"><h2>School connections</h2>
 <p>Connect your parent accounts to find their linked children. Confirm the child you want to monitor.</p>
+<p>Your app sign-in email is the default recipient for each newly confirmed child. You can edit or clear the list under Report recipients.</p>
 <p>Your credentials are encrypted in this private service and used by hosted runners to sign in to the selected school portal. Disconnect to delete the saved credentials.</p>
 <p id="connection-status" role="status" aria-live="polite"></p><div id="connection-list"></div></section>
 <section id="report-recipients" hidden aria-labelledby="recipient-heading">
@@ -151,6 +152,7 @@ export function pilotClient() {
           const saved = await api(`connections/${provider}/confirm`, { candidateId: candidate.id, childId: select.value || undefined });
           await reloadChildren(); byId('child').value = saved.childId; await loadReport(true); await loadConnections();
           byId('connection-status').textContent = `${candidate.displayName} was added. You can choose this child above.`;
+          if (saved.recipientSetupRequired) byId('connection-status').textContent += ' Your sign-in email could not be used for reports. Review Report recipients to choose an address.';
         } catch (error) {
           byId('connection-status').textContent = error.message === 'child_provider_conflict'
             ? 'That child already has a different record in this portal. Add this as a new child, or choose the correct existing child.'

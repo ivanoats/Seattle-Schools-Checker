@@ -1,3 +1,4 @@
+import { normalizeReportRecipients } from '../core/report-recipients.js';
 import { authorized } from './ingest.js';
 import { digest, randomToken, sealCredentials, openCredentials, validKey } from './connection-crypto.js';
 import { configuredChild } from '../core/children.js';
@@ -99,7 +100,7 @@ export async function disconnectConnection(env, member, provider, now) {
   return reply(200, { status: 'disconnected' });
 }
 
-export async function confirmCandidate(env, member, provider, input) {
+export async function confirmCandidate(env, member, provider, input, now = Date.now()) {
   const candidate = (await rows(env.DB.prepare(`SELECT k.* FROM pilot_candidates k JOIN pilot_connections c ON c.id = k.connection_id
     WHERE k.id = ? AND c.family_id = ? AND c.provider = ? AND c.status = 'ready' AND c.revision = k.revision`)
     .bind(typeof input.candidateId === 'string' ? input.candidateId : '', member.family_id, provider)))[0];
@@ -117,14 +118,21 @@ export async function confirmCandidate(env, member, provider, input) {
       || JSON.parse(existingMapping.mapping)[identityField] !== JSON.parse(candidate.mapping)[identityField])) {
     return reply(409, { status: 'child_provider_conflict' });
   }
+  // Only the verified app sign-in supplies the default. A portal username or
+  // client-provided email never selects report recipients. Unsupported email
+  // syntax leaves a manual choice without preventing the school connection.
+  let recipients = null;
+  try { recipients = normalizeReportRecipients([member.email]); } catch { recipients = null; }
   // Every insert rechecks the current connection revision, so disconnect or
   // reconnect while the parent confirms cannot revive an old mapping.
   const guard = `SELECT k.id FROM pilot_candidates k JOIN pilot_connections c ON c.id = k.connection_id
     JOIN pilot_families f ON f.id = c.family_id WHERE k.id = ? AND c.family_id = ? AND c.provider = ?
-      AND c.status = 'ready' AND c.revision = k.revision AND f.revoked_at IS NULL`;
+      AND c.status = 'ready' AND c.revision = k.revision AND f.revoked_at IS NULL
+      AND EXISTS (SELECT 1 FROM pilot_members m WHERE m.family_id=c.family_id AND m.subject=? AND m.email=?)`;
+  const guardParams = [candidate.id, member.family_id, provider, member.subject, member.email];
   await env.DB.batch([
     env.DB.prepare(`INSERT OR IGNORE INTO pilot_children (family_id, id, display_name)
-      SELECT ?, ?, ? WHERE EXISTS (${guard})`).bind(member.family_id, childId, candidate.display_name, candidate.id, member.family_id, provider),
+      SELECT ?, ?, ? WHERE EXISTS (${guard})`).bind(member.family_id, childId, candidate.display_name, ...guardParams),
     env.DB.prepare(`INSERT INTO pilot_child_providers (family_id, child_id, provider, connection_id, revision, remote_id, mapping)
       SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard})
       ON CONFLICT(family_id, child_id, provider) DO UPDATE SET connection_id = excluded.connection_id,
@@ -133,12 +141,19 @@ export async function confirmCandidate(env, member, provider, input) {
         AND COALESCE(json_extract(pilot_child_providers.mapping, '$.studentHeading'), json_extract(pilot_child_providers.mapping, '$.banner'))
           = COALESCE(json_extract(excluded.mapping, '$.studentHeading'), json_extract(excluded.mapping, '$.banner'))`)
       .bind(member.family_id, childId, provider, candidate.connection_id, candidate.revision, candidate.remote_id, candidate.mapping,
-        candidate.id, member.family_id, provider),
+        ...guardParams),
+    ...(recipients ? [env.DB.prepare(`INSERT OR IGNORE INTO pilot_report_recipients
+      (family_id,child_id,recipients,revision,updated_at)
+      SELECT k.family_id,k.id,?,?,? FROM pilot_children k WHERE k.family_id=? AND k.id=? AND EXISTS (${guard})
+        AND EXISTS (SELECT 1 FROM pilot_child_providers p WHERE p.family_id=k.family_id AND p.child_id=k.id
+          AND p.provider=? AND p.connection_id=? AND p.revision=? AND p.remote_id=?)`)
+      .bind(JSON.stringify(recipients),crypto.randomUUID(),iso(now),member.family_id,childId,...guardParams,
+        provider,candidate.connection_id,candidate.revision,candidate.remote_id)] : []),
   ]);
   const saved = (await rows(env.DB.prepare(`SELECT child_id FROM pilot_child_providers WHERE family_id = ? AND child_id = ? AND provider = ?
     AND connection_id = ? AND revision = ? AND remote_id = ?`)
     .bind(member.family_id, childId, provider, candidate.connection_id, candidate.revision, candidate.remote_id)))[0];
-  return saved ? reply(200, { status: 'linked', childId }) : reply(409, { status: 'selection_conflict' });
+  return saved ? reply(200, { status: 'linked', childId, recipientSetupRequired: recipients === null }) : reply(409, { status: 'selection_conflict' });
 }
 
 export async function claimDiscovery(env, provider, now = Date.now()) {

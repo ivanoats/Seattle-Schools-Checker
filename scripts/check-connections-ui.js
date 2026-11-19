@@ -13,7 +13,7 @@ import worker from '../src/cloudflare/worker.js';
 
 const origin = 'https://pilot.example'; const now = Date.now();
 const sqlite = new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys = ON');
-for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql', '0005_check_attempts.sql']) {
+for (const name of ['0001_provider_checks.sql', '0002_pilot_families.sql', '0003_connections.sql', '0004_hosted_checks.sql', '0005_check_attempts.sql', '0006_report_recipients.sql']) {
   sqlite.exec(await readFile(new URL(`../worker/migrations/${name}`, import.meta.url), 'utf8'));
 }
 sqlite.prepare('INSERT INTO pilot_families (id, created_at) VALUES (?, ?)').run('family-one', new Date(now).toISOString());
@@ -61,7 +61,16 @@ try {
   const two = page.locator('.candidate').filter({ hasText: 'Alex Two' });
   await two.getByRole('button', { name: 'Confirm child' }).click();
   await page.getByText('Alex Two was added. You can choose this child above.').waitFor();
+  await page.locator('#recipient-emails').waitFor({state:'visible'});
+  await page.waitForFunction(() => document.getElementById('recipient-emails').value === 'parent@example.com');
+  const recipient = sqlite.prepare('SELECT recipients FROM pilot_report_recipients').get();
+  assert.deepEqual(JSON.parse(recipient.recipients), ['parent@example.com']);
   assert.equal(await page.getByLabel('Whose week are we looking at?').inputValue(), sqlite.prepare('SELECT id FROM pilot_children').get().id);
+  await page.locator('#recipient-emails').fill('partner@example.com');
+  await page.locator('#recipient-save').click();
+  await page.getByText('Recipients saved. Email delivery is not enabled yet.', { exact: true }).waitFor();
+  const savedRecipients = sqlite.prepare('SELECT * FROM pilot_report_recipients').get();
+  assert.deepEqual(JSON.parse(savedRecipients.recipients), ['partner@example.com']);
   const schoologyForm = page.getByRole('form', { name: 'Connect Schoology' });
   await schoologyForm.getByLabel('Parent email').fill('school-parent@example.com');
   await schoologyForm.getByLabel('Password').fill('synthetic-schoology-password');
@@ -75,6 +84,8 @@ try {
   await schoolTwo.getByLabel('How should we add Alex Two?').selectOption({ label: 'Same child as Alex Two' });
   await schoolTwo.getByRole('button', { name: 'Confirm child' }).click();
   await page.getByText('Alex Two was added. You can choose this child above.').waitFor();
+  await page.waitForFunction(() => document.getElementById('recipient-emails').value === 'partner@example.com');
+  assert.deepEqual(sqlite.prepare('SELECT * FROM pilot_report_recipients').get(), savedRecipients);
   const preview = await mkdtemp(join(tmpdir(), 'school-connections-preview-'));
   await page.screenshot({ path: `${preview}/connected-mobile.png`, fullPage: true });
   await page.getByRole('button', { name: 'Disconnect Schoology', exact: true }).click();
