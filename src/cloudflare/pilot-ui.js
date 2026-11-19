@@ -257,9 +257,12 @@ export function pilotClient() {
       failed: 'The latest report could not be sent.', unknown: 'The latest delivery could not be confirmed. It will not be resent automatically.',
       retry: 'The email service was busy; a limited retry is scheduled.', sending: 'The latest report is being sent.',
       skipped: 'The latest report was skipped because delivery settings changed.' };
-    byId('recipient-delivery').textContent = delivery?.status === 'enabled'
-      ? `Email delivery starts ${delivery.startDate}: weekdays after the 5 p.m. Seattle check, except configured closure dates. Save an empty list to stop emails for this child.${delivery.latest ? ` Latest report (${delivery.latest.check_date}): ${messages[delivery.latest.state] ?? 'status unavailable'}` : ''}`
-      : 'Email delivery is not enabled yet. You can save your list now.';
+    if (delivery?.status !== 'enabled') {
+      byId('recipient-delivery').textContent = 'Email delivery is not enabled yet. You can save your list now.';
+      return;
+    }
+    const latest = delivery.latest ? ` Latest report (${delivery.latest.check_date}): ${messages[delivery.latest.state] ?? 'status unavailable'}` : '';
+    byId('recipient-delivery').textContent = `Email delivery starts ${delivery.startDate}: weekdays after the 5 p.m. Seattle check, except configured closure dates. Save an empty list to stop emails for this child.${latest}`;
   }
   async function loadRecipients(childId) {
     if (recipientView?.childId === childId && recipientView.loaded) return;

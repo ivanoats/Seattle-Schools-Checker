@@ -70,18 +70,22 @@ export async function handleSesRunner(request, env, action, readBody, clock = Da
       return reply(200,result.status==='claimed'?result:{status:'idle'});
     }
     const input = await readBody(request); const now = clock();
-    const job = await liveJob(env,input,now);
-    if (!job) return reply(409,{status:'stale_job'});
-    if (action === 'authorize') {
-      if (!job.allowed) await updateJob(env,job,'skipped',null,now);
-      return reply(job.allowed?200:409,{status:job.allowed?'authorized':'settings_changed'});
-    }
-    if (!['sent','failed','unknown','retry'].includes(input.state)
-        || (input.state==='sent' && !/^[a-zA-Z0-9-]{1,200}$/.test(input.messageId ?? ''))) return reply(400,{status:'invalid_result'});
-    // A send already accepted cannot be recalled. Record its outcome even if
-    // settings changed after the last authorization, without reviving access.
-    const write = await updateJob(env,job,input.state,input.state==='sent'?input.messageId:null,now);
-    const changed = (write.meta?.changes ?? write.changes) === 1;
-    return reply(changed?200:409,{status:changed?'recorded':'stale_job'});
+    return processJobAction(env,action,input,now);
   } catch { return reply(503,{status:'email_runner_unavailable'}); }
+}
+
+async function processJobAction(env,action,input,now) {
+  const job = await liveJob(env,input,now);
+  if (!job) return reply(409,{status:'stale_job'});
+  if (action === 'authorize') {
+    if (!job.allowed) await updateJob(env,job,'skipped',null,now);
+    return reply(job.allowed?200:409,{status:job.allowed?'authorized':'settings_changed'});
+  }
+  if (!['sent','failed','unknown','retry'].includes(input.state)
+    || (input.state==='sent' && !/^[a-zA-Z0-9-]{1,200}$/.test(input.messageId ?? ''))) return reply(400,{status:'invalid_result'});
+  // A send already accepted cannot be recalled. Record its outcome even if
+  // settings changed after the last authorization, without reviving access.
+  const write = await updateJob(env,job,input.state,input.state==='sent'?input.messageId:null,now);
+  const changed = (write.meta?.changes ?? write.changes) === 1;
+  return reply(changed?200:409,{status:changed?'recorded':'stale_job'});
 }

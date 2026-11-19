@@ -9,7 +9,8 @@ function courseLines(course) {
   const missing = course.missing === null || (course.assignmentStatus && course.assignmentStatus !== 'available') ? null : course.missing;
   let grade = clean(course.semester) || 'grade unavailable';
   if (/^[A-D][+-]?\s+0(?:\.0+)?%?$/.test(grade)) grade = `${grade.split(/\s/)[0]} (displayed percentage inconsistent)`;
-  const lines = [`${clean(course.course)} (period ${clean(course.period) || '?'}): ${grade}; ${missing === null ? 'missing work unknown' : `${missing.length} marked missing`}.`];
+  const missingLabel=missing===null?'missing work unknown':`${missing.length} marked missing`;
+  const lines = [`${clean(course.course)} (period ${clean(course.period) || '?'}): ${grade}; ${missingLabel}.`];
   for (const assignment of missing ?? []) lines.push(`  • ${clean(assignment.assignment)} — due ${clean(assignment.due) || 'date unavailable'}; recorded score ${clean(assignment.score) || 'unavailable'}.`);
   return lines;
 }
@@ -46,7 +47,7 @@ function itemLines(item, signals = []) {
   for (const signal of signals) for (const metadata of itemMetadata(signal.item)) {
     if (!seen.has(metadata)) { lines.push(`    ${signal.label}: ${metadata}`); seen.add(metadata); }
   }
-  if (item.url && /^https:\/\/app\.schoology\.com\//.test(item.url)) lines.push(`    ${item.url}`);
+  if (item.url && item.url.startsWith('https://app.schoology.com/')) lines.push(`    ${item.url}`);
   return lines;
 }
 

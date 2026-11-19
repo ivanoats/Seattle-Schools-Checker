@@ -113,11 +113,15 @@ async function deliverChild(env, child, date, now, window, claimOnly) {
   }
   if (claimOnly) return { kind: 'daily', familyId: child.family_id, childId: child.id, date, lease, expiresAt,
     message: { from: env.REPORT_EMAIL_FROM, bcc: current.recipients, ...message } };
+  return sendPrepared(env,child,date,now,message,current.recipients,claimed[0].attempts);
+}
+
+async function sendPrepared(env,child,date,now,message,recipients,attempts) {
   try {
     // The current structured Workers API explicitly permits BCC-only mail:
     // at least one of to/cc/bcc, without adding any unsaved recipient.
     const accepted = await env.REPORT_EMAIL.send({ from: { email: env.REPORT_EMAIL_FROM, name: 'School check-in' },
-      bcc: current.recipients, ...message });
+      bcc: recipients, ...message });
     if (typeof accepted?.messageId !== 'string' || !accepted.messageId) throw new Error('acceptance_unknown');
     await finish(env, child, date, 'sent', now, null, accepted.messageId);
     return 'sent';
@@ -125,10 +129,10 @@ async function deliverChild(env, child, date, now, window, claimOnly) {
     // Only explicit pre-acceptance quota/rate rejections are safe to retry.
     // Timeouts, crashes and ambiguous responses may already have sent mail.
     const retryable = ['E_RATE_LIMIT_EXCEEDED', 'E_DAILY_LIMIT_EXCEEDED'].includes(error.code);
-    if (retryable && claimed[0].attempts < 3) {
+    if (retryable && attempts < 3) {
       await env.DB.prepare(`UPDATE pilot_report_deliveries SET state='retry',updated_at=?,next_attempt_at=?,reason='rate_limited'
         WHERE family_id=? AND child_id=? AND check_date=? AND state='sending'`)
-        .bind(iso(now), iso(now + claimed[0].attempts * 300000), child.family_id, child.id, date).run();
+        .bind(iso(now), iso(now + attempts * 300000), child.family_id, child.id, date).run();
       return 'retry';
     }
     const rejected = retryable || ['E_SENDER_NOT_VERIFIED', 'E_SENDER_DOMAIN_NOT_AVAILABLE', 'E_RECIPIENT_SUPPRESSED',

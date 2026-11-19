@@ -4,7 +4,7 @@ import { discoveryEndpoint } from '../source-runner/discover.js';
 import { normalizeReportRecipients } from '../../src/core/report-recipients.js';
 
 function validMessage(message) {
-  if (!message || Object.keys(message).sort().join(',') !== 'bcc,from,html,subject,text') return false;
+  if (!message || Object.keys(message).sort((left,right)=>left.localeCompare(right)).join(',') !== 'bcc,from,html,subject,text') return false;
   try {
     if (normalizeReportRecipients([message.from]).length !== 1 || !normalizeReportRecipients(message.bcc).length) return false;
   } catch { return false; }
@@ -16,6 +16,20 @@ function validMessage(message) {
 function validJob(job, now) {
   return ['daily','test'].includes(job?.kind) && /^[a-f0-9]{64}$/.test(job?.lease ?? '')
     && Date.parse(job.expiresAt)>now && Date.parse(job.expiresAt)<=now+130000 && validMessage(job.message);
+}
+
+async function sendMessage(client,message) {
+  let state='unknown'; let messageId=null;
+  try {
+    const result=await client.send(new SendEmailCommand({FromEmailAddress:message.from,Destination:{BccAddresses:message.bcc},
+      Content:{Simple:{Subject:{Data:message.subject,Charset:'UTF-8'},Body:{Text:{Data:message.text,Charset:'UTF-8'},Html:{Data:message.html,Charset:'UTF-8'}}}}}),
+    {abortSignal:AbortSignal.timeout(30000)});
+    if (typeof result.MessageId==='string' && /^[a-zA-Z0-9-]{1,200}$/.test(result.MessageId)) {state='sent';messageId=result.MessageId;}
+  } catch(error) {
+    if (error.name==='TooManyRequestsException') state='retry';
+    else if (['MessageRejected','MailFromDomainNotVerifiedException','BadRequestException','AccountSuspendedException','SendingPausedException','AccessDeniedException'].includes(error.name)) state='failed';
+  }
+  return {state,messageId};
 }
 
 export async function runHostedMail({origin,token,client,request=fetch,clock=Date.now}) {
@@ -33,16 +47,7 @@ export async function runHostedMail({origin,token,client,request=fetch,clock=Dat
     const {message,...identity}=job;
     const allowed=await post('authorize',identity);
     if (!allowed.ok || (await allowed.json()).status!=='authorized') return {status:'authorization_changed'};
-    let state='unknown'; let messageId=null;
-    try {
-      const result=await client.send(new SendEmailCommand({FromEmailAddress:message.from,Destination:{BccAddresses:message.bcc},
-        Content:{Simple:{Subject:{Data:message.subject,Charset:'UTF-8'},Body:{Text:{Data:message.text,Charset:'UTF-8'},Html:{Data:message.html,Charset:'UTF-8'}}}}}),
-      {abortSignal:AbortSignal.timeout(30000)});
-      if (typeof result.MessageId==='string' && /^[a-zA-Z0-9-]{1,200}$/.test(result.MessageId)) {state='sent';messageId=result.MessageId;}
-    } catch(error) {
-      if (error.name==='TooManyRequestsException') state='retry';
-      else if (['MessageRejected','MailFromDomainNotVerifiedException','BadRequestException','AccountSuspendedException','SendingPausedException','AccessDeniedException'].includes(error.name)) state='failed';
-    }
+    let {state,messageId}=await sendMessage(client,message);
     if (job.kind==='test' && state==='retry') state='failed';
     const completion=await post('complete',{...identity,state,messageId});
     return {status:completion.ok?state:'completion_unverified'};
