@@ -19,6 +19,18 @@ export const pilotHtml = `<!doctype html><html lang="en"><head>
 <p>Connect your parent accounts to find their linked children. Confirm the child you want to monitor.</p>
 <p>Your credentials are encrypted in this private service and used by hosted runners to sign in to the selected school portal. Disconnect to delete the saved credentials.</p>
 <p id="connection-status" role="status" aria-live="polite"></p><div id="connection-list"></div></section>
+<section id="report-recipients" hidden aria-labelledby="recipient-heading">
+<h2 id="recipient-heading">Report recipients</h2>
+<p>Choose who you want to share this child’s grades, assignments and attendance with.</p>
+<p id="recipient-delivery">Email delivery is not enabled yet. You can save your list now.</p>
+<form id="recipient-form" method="post" action="/api/pilot/report-recipients" aria-label="Report recipients">
+<fieldset id="recipient-fields" disabled><legend>Email addresses</legend>
+<label for="recipient-emails">Recipients for this child</label>
+<p id="recipient-help">Enter up to 10 email addresses, one per line or separated by commas. Leave the list empty to remove all recipients.</p>
+<textarea id="recipient-emails" name="recipients" rows="4" maxlength="3000" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="recipient-help" placeholder="child@example.com&#10;partner@example.com"></textarea>
+<button id="recipient-save" type="submit">Save recipients</button></fieldset></form>
+<button id="recipient-reload" type="button">Reload saved list</button>
+<p id="recipient-status" role="status" aria-live="polite"></p></section>
 <div id="report"></div></div>
 <p class="footnote">Source missing flags and Schoology overdue labels mean different things. Check turn-in evidence before redoing work.</p>
 </main></body></html>`;
@@ -37,7 +49,7 @@ a{color:#145b84;text-underline-offset:.2em}:focus-visible{outline:3px solid #a26
 #status{padding:.7rem 0;font-weight:600}li{margin:.5rem 0}table{border-collapse:collapse;width:100%;text-align:left}th,td{padding:.65rem;border-bottom:1px solid #cad9e4;vertical-align:top}
 caption{text-align:left;font-weight:700;padding:.5rem 0}.table-wrap{overflow:auto}.footnote{color:#456079;font-size:.95rem;margin-top:2rem}
 .verified{color:#275c3c}.warning{color:#80501a}[hidden]{display:none!important}@media(max-width:36rem){main{padding-top:1.4rem}section{padding:1rem}.picker{display:block}.picker select,.picker button{display:block;width:100%;margin-top:.8rem}th,td{padding:.5rem}}
-fieldset{border:1px solid #cad9e4;padding:1rem;margin:1rem 0}legend{font-weight:700}form label{display:block;margin-top:.75rem}input{display:block;font:inherit;min-height:3rem;padding:.5rem;border:1px solid #54758d;border-radius:.3rem;width:min(100%,28rem)}form button{margin:1rem .6rem 0 0}form p{font-size:.95rem}.candidate{padding:.8rem 0;border-top:1px solid #cad9e4}.candidate label{display:block}.candidate select{display:block;margin:.5rem 0}.connection{border-top:1px solid #cad9e4;padding-top:1rem;margin-top:1rem}
+textarea{font:inherit;display:block;width:100%;min-height:8rem;padding:.6rem;border:1px solid #54758d;border-radius:.3rem;resize:vertical}fieldset{border:1px solid #cad9e4;padding:1rem;margin:1rem 0}legend{font-weight:700}form label{display:block;margin-top:.75rem}input{display:block;font:inherit;min-height:3rem;padding:.5rem;border:1px solid #54758d;border-radius:.3rem;width:min(100%,28rem)}form button{margin:1rem .6rem 0 0}form p{font-size:.95rem}.candidate{padding:.8rem 0;border-top:1px solid #cad9e4}.candidate label{display:block}.candidate select{display:block;margin:.5rem 0}.connection{border-top:1px solid #cad9e4;padding-top:1rem;margin-top:1rem}
 `;
 
 export function pilotClient() {
@@ -47,6 +59,7 @@ export function pilotClient() {
   if (location.hash) history.replaceState(null, '', location.pathname);
   let generation = 0;
   let selectionWrites = Promise.resolve();
+  let recipientView = null;
   let connectionTimer = null; let cachedChildren = []; const connectionViews = new Map();
   async function api(path, body) {
     const response = await fetch(`/api/pilot/${path}`, {
@@ -232,11 +245,73 @@ export function pilotClient() {
       items('Conflicting deadline information', data.report.schoology.conflictingDeadlines, school);
     }
   }
+  function recipientMessage(error) {
+    return ({ invalid_email_address: 'Check each email address. Use addresses only, without names or extra text.',
+      too_many_recipients: 'Enter no more than 10 email addresses.',
+      recipient_settings_changed: 'This saved list changed in another window. Keep a copy of your edits, then reload the saved list before saving again.',
+      sign_in_required: 'Your sign-in has expired. Sign in again to edit recipients.',
+    })[error.message] || 'We could not save these recipients. Your edits are still here. Try again.';
+  }
+  async function loadRecipients(childId) {
+    if (recipientView?.childId === childId && recipientView.loaded) return;
+    const view = { childId, revision: null, loaded: false }; recipientView = view;
+    byId('report-recipients').hidden = !childId;
+    byId('recipient-fields').disabled = true;
+    byId('recipient-save').disabled = false; byId('recipient-reload').disabled = false;
+    byId('recipient-emails').value = '';
+    if (!childId) return;
+    const child = cachedChildren.find(value => value.id === childId);
+    byId('recipient-heading').textContent = `Report recipients for ${child?.displayName ?? 'this child'}`;
+    byId('recipient-status').textContent = 'Loading saved recipients…';
+    try {
+      const data = await api(`report-recipients?childId=${encodeURIComponent(childId)}`);
+      if (recipientView !== view || byId('child').value !== childId) return;
+      view.revision = data.revision; view.loaded = true;
+      byId('recipient-emails').value = data.recipients.join('\n');
+      byId('recipient-status').textContent = data.recipients.length ? 'Saved recipients loaded.' : 'No recipients saved for this child.';
+      byId('recipient-fields').disabled = false;
+    } catch {
+      if (recipientView === view) byId('recipient-status').textContent = 'We could not load saved recipients. Reload the saved list before editing.';
+    }
+  }
+  byId('recipient-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const view = recipientView;
+    if (!view?.loaded || view.conflict || byId('child').value !== view.childId) return;
+    const recipients = byId('recipient-emails').value.split(/[,;\n]+/).map(value => value.trim()).filter(Boolean);
+    byId('recipient-fields').disabled = true;
+    byId('recipient-reload').disabled = true;
+    byId('recipient-status').textContent = 'Saving recipients…';
+    try {
+      const data = await api('report-recipients', { childId: view.childId, recipients, revision: view.revision });
+      if (recipientView !== view) return;
+      view.revision = data.revision;
+      byId('recipient-emails').value = data.recipients.join('\n');
+      byId('recipient-status').textContent = 'Recipients saved. Email delivery is not enabled yet.';
+    } catch (error) {
+      if (recipientView === view) {
+        byId('recipient-status').textContent = recipientMessage(error);
+        if (error.message === 'recipient_settings_changed') view.conflict = true;
+      }
+    } finally {
+      if (recipientView === view) {
+        byId('recipient-fields').disabled = !view.loaded;
+        byId('recipient-save').disabled = Boolean(view.conflict); byId('recipient-reload').disabled = false;
+      }
+    }
+  });
+  byId('recipient-reload').addEventListener('click', () => {
+    recipientView = null; loadRecipients(byId('child').value).catch(() => status('We could not reload recipients. Please refresh the page.'));
+  });
   async function loadReport(save = false) {
     const version = ++generation;
     byId('report').replaceChildren();
     const childId = byId('child').value;
-    if (!childId) { status('Choose a child to see saved school records.'); return; }
+    if (recipientView?.childId !== childId) {
+      recipientView = null; byId('report-recipients').hidden = true;
+      byId('recipient-fields').disabled = true; byId('recipient-emails').value = '';
+    }
+    if (!childId) { await loadRecipients(''); status('Choose a child to see saved school records.'); return; }
     status('Loading saved school records…');
     try {
       if (save) {
@@ -245,6 +320,9 @@ export function pilotClient() {
         await write;
       }
       if (version !== generation) return;
+      loadRecipients(childId).catch(() => {
+        if (byId('child').value === childId) byId('recipient-status').textContent = 'We could not load saved recipients. Reload the saved list before editing.';
+      });
       const data = await api(`report?childId=${encodeURIComponent(childId)}`);
       if (version !== generation) return;
       render(data); status('Saved report loaded. Check the verification times below.');

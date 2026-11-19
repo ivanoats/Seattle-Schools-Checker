@@ -64,7 +64,7 @@ try {
   assert.match(await page.locator('#report').innerText(), /Unknown/);
   assert.match(await page.locator('#report').innerText(), /latest check did not succeed/);
   assert.match(await page.locator('#report').innerText(), /Submitted; Schoology also lists this overdue/);
-  assert.equal(await page.getByRole('textbox').count(), 0, 'no password entry before connections are implemented');
+  assert.equal(await page.locator('input[type="password"]').count(), 0, 'unavailable school connections must not collect passwords');
   await page.getByLabel('Whose week are we looking at?').selectOption('alex-two');
   await page.getByRole('heading', { name: 'Alex Two’s saved school update' }).waitFor();
   assert.doesNotMatch(await page.locator('#report').innerText(), /Alex One/);

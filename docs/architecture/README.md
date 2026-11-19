@@ -21,3 +21,5 @@ are maintained alongside it in Markdown. Decision records distinguish
 accepted scope from proposed implementation choices.
 
 - [Recurring hosted school checks](recurring-hosted-checks.md): weekday scheduling, confirmed children, isolated runners and retained observations.
+
+- [Per-child report recipients](report-recipients.md): private editable email lists and the current delivery limitation.
