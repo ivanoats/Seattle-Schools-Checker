@@ -56,6 +56,10 @@ if test "$mode" = discovery; then
 else
   install -m 644 /opt/source-runner/deploy/aws/source-runner.service /etc/systemd/system/source-runner.service
   systemctl disable --now source-discovery.timer 2>/dev/null || true
+  # Stopping a timer does not stop the service it has already launched.
+  if systemctl cat source-discovery.service >/dev/null 2>&1; then
+    systemctl stop source-discovery.service
+  fi
   systemctl daemon-reload
   systemctl enable source-runner.service
   echo "Installed scheduled runner. Test source-runner.service before removing the stay-up marker."

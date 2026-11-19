@@ -403,3 +403,23 @@ test('Source resolves relative child links against the current document', async 
     assert.deepEqual(children.map(child => child.displayName), ['Alex One', 'Alex Two']);
   } finally { await browser.close(); }
 });
+
+
+test('deadline-triggered browser closure is reported as expiry, not a credential failure', async () => {
+  for (const provider of ['source', 'schoology']) {
+    const input = credentials();
+    const pendingContext = Promise.withResolvers(); let closed = 0;
+    const browser = {
+      newContext: () => pendingContext.promise,
+      close: () => {
+        closed += 1;
+        pendingContext.reject(new Error('Browser closed with synthetic-password in an internal message'));
+        return Promise.resolve();
+      },
+    };
+    const result = await discoverAccount(provider, input, () => Promise.resolve(browser), 5);
+    assert.deepEqual(result, { status: 'attention', reason: 'discovery_expired' });
+    assert.deepEqual(input, { username: '', password: '' });
+    assert.ok(closed > 0);
+  }
+});

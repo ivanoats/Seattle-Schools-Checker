@@ -36,6 +36,7 @@ export async function discoverAccount(provider, credentials, launch, timeoutMs =
     const children = await (provider === 'source' ? discoverSourceChildren : discoverSchoologyChildren)(page);
     return { status: 'ok', children };
   } catch (error) {
+    if (expired) return { status: 'attention', reason: 'discovery_expired' };
     return { status: 'attention', reason: error instanceof CheckError && /^[a-z_]{1,64}$/.test(error.status)
       ? error.status : 'discovery_failed' };
   } finally {
