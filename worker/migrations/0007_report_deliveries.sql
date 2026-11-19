@@ -5,7 +5,7 @@ CREATE TABLE pilot_report_deliveries (
   child_id TEXT NOT NULL,
   check_date TEXT NOT NULL,
   recipient_revision TEXT NOT NULL,
-  state TEXT NOT NULL CHECK(state IN ('sending','retry','sent','failed','unknown','skipped')),
+  state TEXT NOT NULL CHECK(state IN ('waiting','sending','retry','sent','failed','unknown','skipped')),
   cutoff TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 1,

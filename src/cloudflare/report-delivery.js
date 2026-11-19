@@ -65,8 +65,9 @@ async function mappingSignature(env, child) {
 }
 
 async function deliverChild(env, child, date, now, window) {
-  const existing = (await rows(env.DB.prepare(`SELECT * FROM pilot_report_deliveries WHERE family_id=? AND child_id=? AND check_date=?`)
+  const stored = (await rows(env.DB.prepare("SELECT * FROM pilot_report_deliveries WHERE family_id=? AND child_id=? AND check_date=?")
     .bind(child.family_id, child.id, date)))[0];
+  const existing = stored?.state === 'waiting' ? null : stored;
   if (existing && (existing.state !== 'retry' || existing.next_attempt_at > iso(now))) return 'idle';
   const saved = await activeRecipients(env, child, existing?.recipient_revision);
   if (!saved) {
@@ -80,16 +81,24 @@ async function deliverChild(env, child, date, now, window) {
   // Allow queued runners an hour from 5 p.m.; then send an explicit unavailable
   // snapshot. Seattle DST changes occur on Sundays, when no reports are sent.
   const deadline = Date.parse(window.start) + 18 * 3600000;
-  if (!existing && providers.some(provider => provider.waiting) && now < deadline) return 'waiting';
+  if (!existing && providers.some(provider => provider.waiting) && now < deadline) {
+    await env.DB.prepare(`INSERT INTO pilot_report_deliveries
+      (family_id,child_id,check_date,recipient_revision,state,cutoff,updated_at,attempts)
+      VALUES (?,?,?,?,'waiting',?,?,0) ON CONFLICT(family_id,child_id,check_date)
+      DO UPDATE SET updated_at=excluded.updated_at WHERE pilot_report_deliveries.state='waiting'`)
+      .bind(child.family_id, child.id, date, saved.revision, cutoff, iso(now)).run();
+    return 'waiting';
+  }
   const message = buildReportEmail({ child, date, providers, cutoff });
   const claimed = await rows(env.DB.prepare(`INSERT INTO pilot_report_deliveries
     (family_id,child_id,check_date,recipient_revision,state,cutoff,updated_at)
     SELECT r.family_id,r.child_id,?,r.revision,'sending',?,? FROM pilot_report_recipients r JOIN pilot_families f ON f.id=r.family_id
     WHERE r.family_id=? AND r.child_id=? AND r.revision=? AND f.revoked_at IS NULL
     ON CONFLICT(family_id,child_id,check_date) DO UPDATE SET state='sending',updated_at=excluded.updated_at,
-      attempts=pilot_report_deliveries.attempts+1,next_attempt_at=NULL
-      WHERE pilot_report_deliveries.state='retry' AND pilot_report_deliveries.recipient_revision=excluded.recipient_revision
-        AND pilot_report_deliveries.next_attempt_at<=excluded.updated_at RETURNING attempts`)
+      attempts=pilot_report_deliveries.attempts+1,next_attempt_at=NULL,cutoff=excluded.cutoff,recipient_revision=excluded.recipient_revision
+      WHERE pilot_report_deliveries.state='waiting' OR (pilot_report_deliveries.state='retry'
+        AND pilot_report_deliveries.recipient_revision=excluded.recipient_revision
+        AND pilot_report_deliveries.next_attempt_at<=excluded.updated_at) RETURNING attempts`)
     .bind(date, cutoff, iso(now), child.family_id, child.id, saved.revision));
   if (!claimed.length) return 'idle';
   // Last possible ownership/list check before the irreversible transport call.
@@ -98,6 +107,8 @@ async function deliverChild(env, child, date, now, window) {
     await finish(env, child, date, 'skipped', now, 'settings_changed'); return 'skipped';
   }
   try {
+    // The current structured Workers API explicitly permits BCC-only mail:
+    // at least one of to/cc/bcc, without adding any unsaved recipient.
     const accepted = await env.REPORT_EMAIL.send({ from: { email: env.REPORT_EMAIL_FROM, name: 'School check-in' },
       bcc: current.recipients, ...message });
     if (typeof accepted?.messageId !== 'string' || !accepted.messageId) throw new Error('acceptance_unknown');
@@ -114,7 +125,7 @@ async function deliverChild(env, child, date, now, window) {
       return 'retry';
     }
     const rejected = retryable || ['E_SENDER_NOT_VERIFIED', 'E_SENDER_DOMAIN_NOT_AVAILABLE', 'E_RECIPIENT_SUPPRESSED',
-      'E_RECIPIENT_NOT_ALLOWED', 'E_VALIDATION_ERROR'].includes(error.code);
+      'E_RECIPIENT_NOT_ALLOWED', 'E_VALIDATION_ERROR', 'E_FIELD_MISSING'].includes(error.code);
     await finish(env, child, date, rejected ? 'failed' : 'unknown', now, rejected ? 'delivery_rejected' : 'acceptance_unknown');
     return rejected ? 'failed' : 'unknown';
   }
@@ -128,22 +139,22 @@ export async function runReportDelivery(env, now = Date.now()) {
   // key. "unknown" is deliberately different from delivered or failed.
   await env.DB.prepare(`UPDATE pilot_report_deliveries SET state='unknown',reason='acceptance_unknown',updated_at=?
     WHERE state='sending' AND updated_at<=?`).bind(iso(now), iso(now - 300000)).run();
-  await env.DB.prepare(`UPDATE pilot_report_deliveries SET state='failed',reason='delivery_window_elapsed',updated_at=?
-    WHERE state='retry' AND check_date<?`).bind(iso(now), date).run();
+  await env.DB.prepare(`UPDATE pilot_report_deliveries SET state=CASE WHEN state='waiting' THEN 'skipped' ELSE 'failed' END,reason='delivery_window_elapsed',updated_at=?
+    WHERE state IN ('retry','waiting') AND check_date<?`).bind(iso(now), date).run();
   const children = await rows(env.DB.prepare(`SELECT k.* FROM pilot_children k JOIN pilot_families f ON f.id=k.family_id
     JOIN pilot_report_recipients r ON r.family_id=k.family_id AND r.child_id=k.id
     WHERE f.revoked_at IS NULL AND json_array_length(r.recipients)>0
       AND EXISTS (SELECT 1 FROM pilot_child_providers p WHERE p.family_id=k.family_id AND p.child_id=k.id)
       AND NOT EXISTS (SELECT 1 FROM pilot_report_deliveries d WHERE d.family_id=k.family_id AND d.child_id=k.id AND d.check_date=?
-        AND (d.state!='retry' OR d.next_attempt_at>?))
-    ORDER BY k.family_id,k.id`).bind(date, iso(now)));
+        AND (d.state NOT IN ('retry','waiting') OR (d.state='retry' AND d.next_attempt_at>?)))
+    ORDER BY COALESCE((SELECT d.updated_at FROM pilot_report_deliveries d WHERE d.family_id=k.family_id
+      AND d.child_id=k.id AND d.check_date=?),''),k.family_id,k.id LIMIT 10`).bind(date, iso(now), date));
   const outcomes = {};
-  // Bound one tick's email work; terminal rows are excluded on the next tick.
-  let processed = 0;
+  // Bound readiness queries AND sends. Persisted waiting timestamps rotate
+  // unsent children fairly, rather than repeatedly scanning the same first ten.
   for (const child of children) {
     const state = await deliverChild(env, child, date, now, checkDayWindow(now));
     outcomes[state] = (outcomes[state] ?? 0) + 1;
-    if (!['idle', 'waiting'].includes(state) && ++processed >= 10) break;
   }
   return { status: 'processed', outcomes };
 }

@@ -50,8 +50,9 @@ prevent overlapping scheduler ticks sending duplicates. The ledger stores only
 recipient revision, cutoff, attempt count, state, provider message ID and generic
 reason; it duplicates neither recipient addresses nor school records/email bodies.
 Bodies are regenerated from observations bounded by the saved cutoff on a safe
-retry. Ten delivery attempts per tick bound sender work. Terminal rows are skipped
-in SQL; waiting households do not block other ready households.
+retry. Ten children per tick bound readiness queries and sender work, reserving capacity
+for collection. Waiting timestamps persist and rotate the queue fairly. Terminal
+rows are skipped in SQL; waiting households do not block other ready households.
 
 Cloudflare's binding exposes no idempotency key. Exactly-once delivery cannot be
 claimed across the database/transport boundary. Only explicit quota/rate rejection

@@ -19,7 +19,7 @@ async function environment() {
   const env = { sqlite, sent, HOSTED_CHECKS_ENABLED: 'true', HOSTED_CHECK_SKIP_DATES: '[]',
     SOURCE_CONNECTIONS_ENABLED: 'true', SCHOOLOGY_CONNECTIONS_ENABLED: 'true', REPORT_EMAIL_ENABLED: 'true',
     REPORT_EMAIL_FROM: 'reports@example.com', REPORT_EMAIL_START_DATE: '2026-11-18',
-    DB: { prepare: sql => statement(sql) }, REPORT_EMAIL: { send: message => { sent.push(message); return Promise.resolve({ messageId: `message-${sent.length}` }); } } };
+    DB: { prepare: sql => statement(sql) }, REPORT_EMAIL: { send: message => { assert.ok([message.to, message.cc, message.bcc].some(value => Array.isArray(value) ? value.length : Boolean(value)), 'Workers API requires at least one to/cc/bcc recipient'); sent.push(message); return Promise.resolve({ messageId: `message-${sent.length}` }); } } };
   for (const family of ['one', 'two']) {
     sqlite.prepare('INSERT INTO pilot_families VALUES (?,?,NULL)').run(family, iso(now));
     for (const child of ['first', 'second']) {
@@ -53,7 +53,7 @@ test('one report per child and day, isolated across siblings/families, BCC prote
   assert.equal(env.sent.length, 4);
   assert.equal(deliveries(env).filter(row => row.state === 'sent').length, 4);
   for (const message of env.sent) {
-    assert.equal(message.bcc.length, 1); assert.equal(message.to, undefined);
+    assert.equal(message.bcc.length, 1); assert.ok(!Object.hasOwn(message, 'to'));
     const [family, child] = message.bcc[0].split('@')[0].split('-');
     assert.match(message.text, new RegExp(`School check-in for ${family} ${child}`));
     assert.doesNotMatch(message.text, new RegExp(`${family === 'one' ? 'two' : 'one'} French`));
@@ -62,7 +62,7 @@ test('one report per child and day, isolated across siblings/families, BCC prote
   }
   await runReportDelivery(env, now + 60000); assert.equal(env.sent.length, 4);
   const status = await reportDeliveryStatus(env, 'one', 'first');
-  assert.equal(status.latest.state, 'sent'); assert.equal(status.latest.message_id, undefined);
+  assert.equal(status.latest.state, 'sent'); assert.ok(!Object.hasOwn(status.latest, 'message_id'));
 });
 
 test('weekends, pre-five, excluded days, activation date and disabled feature never send', async () => {
@@ -141,12 +141,30 @@ test('recipient changes cancel retries; a later edit never resends a sent daily 
 test('email formatting preserves evidence, actual due dates and submission conflicts, and escapes portal text', () => {
   const item = { course: 'Literature', assignment: '<img src=x> Essay', url: 'https://app.schoology.com/assignment/123', scheduledAt: '2026-11-19T07:59:00Z', dateLabel: null, description: 'Due Wednesday, November 18, 2026 at 11:59 pm' };
   const schoology = { version: 1, childId: 'first', provider: 'schoology', observedAt: iso(now), overdueCoverage: 'complete', overdue: [item], upcoming: [item], events: null,
-    recentlyCompleted: [{ ...item, submissionStatus: 'This material has been submitted but not yet graded' }] };
+    recentlyCompleted: [{ course: item.course, assignment: item.assignment, url: item.url, scheduledAt: null, submissionStatus: 'This material has been submitted but not yet graded' }] };
   const message = buildReportEmail({ child: { id: 'first', display_name: '<Alex>\nBcc: fake' }, date: '2026-11-18', cutoff: iso(now),
     providers: [{ provider: 'schoology', observation: schoology, current: true, observedAt: iso(now) }] });
-  assert.match(message.text, /Schoology confirms submitted/); assert.match(message.text, /also listed overdue/);
+  assert.match(message.text, /Schoology confirms submitted/); assert.match(message.text, /Also listed overdue/);
   assert.match(message.text, /Due Wednesday, November 18, 2026 at 11:59 pm/);
   assert.doesNotMatch(message.html, /<img/); assert.match(message.html, /&lt;img/);
   assert.doesNotMatch(message.subject, /[\r\n]/);
   assert.equal(message.text.split('  • ').length - 1, 1, 'submitted assignment is not duplicated into a next-actions list');
+});
+
+
+test('readiness is bounded and rotates waiting children so a later ready child is not starved', async () => {
+  const env = await environment();
+  for (let index = 0; index < 25; index++) {
+    const id = `aaa-${String(index).padStart(2, '0')}`;
+    env.sqlite.prepare('INSERT INTO pilot_children VALUES (?,?,?)').run('one', id, id);
+    env.sqlite.prepare('INSERT INTO pilot_report_recipients VALUES (?,?,?,?,?)').run('one', id, JSON.stringify(['parent@example.com']), 'revision', iso(now));
+    env.sqlite.prepare('INSERT INTO pilot_child_providers VALUES (?,?,?,?,?,?,?)').run('one', id, 'source', 'one-source', 'revision', id, '{}');
+  }
+  let queries = 0; const prepare = env.DB.prepare;
+  env.DB.prepare = sql => { queries++; return prepare(sql); };
+  for (let tick = 0; tick < 3; tick++) {
+    queries = 0; await runReportDelivery(env, now + tick * 1000);
+    assert.ok(queries < 200, `readiness and sends must leave room for collection: ${queries}`);
+  }
+  assert.equal(env.sent.length, 4, 'ready siblings after 25 waiting children are eventually reached');
 });

@@ -253,7 +253,7 @@ export function pilotClient() {
     })[error.message] || 'We could not save these recipients. Your edits are still here. Try again.';
   }
   function renderDelivery(delivery) {
-    const messages = { sent: 'Accepted by the email service; inbox delivery is not confirmed.',
+    const messages = { waiting: 'Waiting for school checks to finish.', sent: 'Accepted by the email service; inbox delivery is not confirmed.',
       failed: 'The latest report could not be sent.', unknown: 'The latest delivery could not be confirmed. It will not be resent automatically.',
       retry: 'The email service was busy; a limited retry is scheduled.', sending: 'The latest report is being sent.',
       skipped: 'The latest report was skipped because delivery settings changed.' };
